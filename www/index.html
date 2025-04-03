@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WGPU testing</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+        body{
+            background-color: #333;
+            font-family: Arial, sans-serif;
+            color: white;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .canvas-container{
+            flex: 1;
+            display: flex;
+            position:relative;
+        }
+        #canvas {
+            position:absolute;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="canvas-container">
+        <canvas id="canvas"></canvas>
+    </div>
+    
+    <script type="module">
+          // Import the WebAssembly module
+          import init, {start} from './pkg/gpudemo.js';
+
+          async function run() {
+            // Initialize the WebAssembly module
+            await init();
+
+            const canvas = document.getElementById('canvas');
+            function resizeCanvas() {
+              const container = canvas.parentElement;
+              const displayWidth = container.clientWidth;
+              const displayHeight = container.clientHeight;
+              if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+                canvas.width = displayWidth;
+                canvas.height = displayHeight;
+              }
+            }
+            resizeCanvas();
+
+            try {
+              start();
+              console.log('Rendering successful!');
+            } catch (error) {
+              console.error('Error on rendering:', error);
+              document.body.innerHTML += `<p style="color: red">Error: ${error.message}</p>`;
+            }
+          }
+
+          run();
+    </script>
+</body>
+</html>

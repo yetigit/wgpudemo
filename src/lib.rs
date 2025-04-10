@@ -48,7 +48,9 @@ impl MyState {
         let size = window.inner_size();
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::BROWSER_WEBGPU,
-            flags: wgpu::InstanceFlags::debugging(),
+            flags: wgpu::InstanceFlags::ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER
+                | wgpu::InstanceFlags::VALIDATION
+                | wgpu::InstanceFlags::DEBUG,
             ..Default::default()
         });
 
@@ -63,11 +65,13 @@ impl MyState {
             .await
             .unwrap();
 
+        let required_features = wgpu::Features::from_bits_truncate(wgpu::Features::empty().bits());
+
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    required_features: wgpu::Features::empty(),
+                    required_features,
                     ..Default::default()
                 },
                 None,
@@ -223,7 +227,10 @@ impl MyState {
 }
 
 enum MyEvent  {
-    JobDone 
+    InitStateDone {
+        window: Arc<Window>, 
+        size: winit::dpi::PhysicalSize<u32>,
+    },
 }
 
 struct MyApp {
@@ -242,32 +249,34 @@ impl MyApp {
 }
 
 impl ApplicationHandler<MyEvent> for MyApp {
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: MyEvent) {
-        log::warn!("Job done!");
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: MyEvent) {
+        match event {
+            MyEvent::InitStateDone{window, size} => {
+                log::warn!("State initialisation is done");
+                // Ask for resize
+                let _ = window.as_ref().request_inner_size(size);
+            }
+        }
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = Window::default_attributes().with_title("gpudemo");
         let window = event_loop.create_window(window_attributes).unwrap();
 
-        {
-            let web_window = web_sys::window().expect("No web window");
-
-            web_window
-                .document()
-                .and_then(|doc| doc.body())
-                .and_then(|body| {
-                    body.append_child(&web_sys::Element::from(window.canvas()?))
-                        .ok()?;
-                    Some(())
-                })
-                .expect("Couldn't append canvas to document body.");
-
-            let web_width = web_window.inner_width().unwrap().as_f64().unwrap() as u32;
-            let web_height = web_window.inner_height().unwrap().as_f64().unwrap() as u32;
-
-            let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(web_width, web_height));
-        }
+        let web_window = web_sys::window().expect("No web window");
+        web_window
+            .document()
+            .and_then(|doc| doc.body())
+            .and_then(|body| {
+                body.append_child(&web_sys::Element::from(window.canvas()?))
+                    .ok()?;
+                Some(())
+            })
+            .expect("Couldn't append canvas to document body.");
+        let web_width = web_window.inner_width().unwrap().as_f64().unwrap() as u32;
+        let web_height = web_window.inner_height().unwrap().as_f64().unwrap() as u32;
+        let web_size = winit::dpi::PhysicalSize::new(web_width, web_height);
+        // let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(web_size));
 
         let state_clone = self.state.clone();
         let event_proxy_clone = self.event_proxy.clone();
@@ -277,7 +286,12 @@ impl ApplicationHandler<MyEvent> for MyApp {
             match state_clone.try_borrow_mut() {
                 Ok(mut state_obj) => {
                     *state_obj = Some(new_state);
-                    if let Err(e) = event_proxy_clone.send_event(MyEvent::JobDone) {
+                    let window_clone = state_obj.as_ref().map(|state| state.window.clone()).unwrap();
+
+                    if let Err(e) = event_proxy_clone.send_event(MyEvent::InitStateDone {
+                        window: window_clone,
+                        size: web_size,
+                    }) {
                         log::warn!("Failed to send user event: {}", e);
                     }
                 }
@@ -322,8 +336,7 @@ impl ApplicationHandler<MyEvent> for MyApp {
                             self.surface_configured = true;
                         }
                     }
-                }
-                  
+                }                  
             }
 
             WindowEvent::RedrawRequested => {

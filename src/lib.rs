@@ -20,24 +20,23 @@ struct MyState {
     window: Arc<Window>,
 }
 
-const SHADER_CODE: &str = r#"
-      @vertex fn vs(
-        @builtin(vertex_index) vertexIndex : u32
-      ) -> @builtin(position) vec4f {
-        let pos = array(
-          vec2f( 0.0,  0.5),
-          vec2f(-0.5, -0.5),
-          vec2f( 0.5, -0.5)
-        );
- 
-        return vec4f(pos[vertexIndex], 0.0, 1.0);
-      }
- 
-      @fragment fn fs() -> @location(0) vec4f {
-        return vec4f(1.0, 0.0, 0.0, 1.0);
-      }
-"#;
+async fn fetch_shader(shader_path: &str) -> Result<String, JsValue> {
+    use wasm_bindgen_futures::JsFuture;
+    use web_sys::{Request, RequestInit, RequestMode, Response};
 
+    let opts = RequestInit::new();
+    opts.set_method("GET");
+    opts.set_mode(RequestMode::Cors);
+
+    let request = Request::new_with_str_and_init(shader_path, &opts).unwrap();
+
+    let window = web_sys::window().expect("No web window");
+    let resp_value = JsFuture::from(window.fetch_with_request(&request)).await?;
+    let resp: Response = resp_value.dyn_into()?;
+
+    let text = JsFuture::from(resp.text()?).await?;
+    Ok(text.as_string().unwrap())
+}
 
 impl MyState {
     fn window(&self) -> &Window {
@@ -100,9 +99,11 @@ impl MyState {
             view_formats: vec![],
         };
 
+        let shader_code = fetch_shader("public/shaders/simple.wgsl").await.unwrap();
+
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(SHADER_CODE.into()),
+            source: wgpu::ShaderSource::Wgsl(shader_code.into()),
         });
 
         let render_pipeline_layout =

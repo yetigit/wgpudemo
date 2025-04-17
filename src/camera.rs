@@ -3,7 +3,7 @@ use nalgebra::Vector3;
 type Vector3f = Vector3<f32>;
 
 #[allow(dead_code)]
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Camera {
     /// matrix parameters

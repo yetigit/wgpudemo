@@ -1,11 +1,14 @@
 use wasm_bindgen::prelude::*;
 use std::{iter, sync::Arc, rc::Rc, cell::RefCell};
-use wgpu::util::DeviceExt;
+use wgpu::{include_wgsl, util::DeviceExt};
 
 mod sphere;
 mod camera;
 
 use camera::Camera;
+
+// TODO:
+// -Seperate MyState in a mod
 
 use winit::{
     application::ApplicationHandler,
@@ -24,6 +27,7 @@ struct MyState {
     size: winit::dpi::PhysicalSize<u32>,
     window: Arc<Window>,
     camera: Camera,
+    compute_pipeline: Option<wgpu::ComputePipeline>,
     rt_img_buffer: Option<wgpu::Buffer>,
     camera_uniform_buffer: Option<wgpu::Buffer>,
 }
@@ -47,6 +51,8 @@ async fn fetch_shader(shader_path: &str) -> Result<String, JsValue> {
 }
 
 impl MyState {
+    const CAMERA_UNIFORM_BIND:u32 = 0;
+    const IMG_BUFFER_BIND:u32 = 1;
     fn window(&self) -> &Window {
         &self.window
     }
@@ -88,12 +94,16 @@ impl MyState {
 
         let surface_caps = surface.get_capabilities(&adapter);
 
+        // log::warn!("Default texture color format: {:?}", surface_caps.formats[0]);
+        // TODO: We would prefer more control over which format we pick
+        // seems to go to Bgra8UNorm
         let surface_format = surface_caps
             .formats
             .iter()
             .copied()
             .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
+        log::warn!("Texture color format: {:?}", surface_format);
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -176,6 +186,7 @@ impl MyState {
             size,
             window,
             camera,
+            compute_pipeline: None,
             rt_img_buffer: None,
             camera_uniform_buffer: None,
         }
@@ -191,8 +202,8 @@ impl MyState {
             .and_then(|pixel_bytes| {
                 Some(pixel_bytes as usize * self.size.width as usize * self.size.height as usize)
             });
-        // White screen
-        let buffer = vec![1 as u8; output_size.unwrap()];
+        // Black screen
+        let buffer = vec![0 as u8; output_size.unwrap()];
         let rt_img_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -220,7 +231,88 @@ impl MyState {
         self.camera_uniform_buffer = Some(camera_uniform_buffer);
     }
 
-    fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+    // TODO: Make constants for the binding index
+    fn create_rt_bindgrp(&self, layout: &wgpu::BindGroupLayout) -> wgpu::BindGroup {
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Main bind group"),
+            // Get it from our compute pipeline
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: MyState::CAMERA_UNIFORM_BIND,
+                    resource: self
+                        .camera_uniform_buffer
+                        .as_ref()
+                        .unwrap()
+                        .as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: MyState::IMG_BUFFER_BIND,
+                    resource: self.rt_img_buffer.as_ref().unwrap().as_entire_binding(),
+                },
+            ],
+        })
+    }
+
+    fn create_rt_pipeline(&mut self) {
+        if self.compute_pipeline.is_none() {
+            let layout = self
+                .device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: None,
+                    entries: &[
+                        // camera
+                        wgpu::BindGroupLayoutEntry {
+                            binding: MyState::CAMERA_UNIFORM_BIND,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                        // img storage buffer
+                        wgpu::BindGroupLayoutEntry {
+                            binding: MyState::IMG_BUFFER_BIND,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Storage { read_only: false },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                    ],
+                });
+
+            let compute_pipeline_layout =
+                self.device
+                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: None,
+                        bind_group_layouts: &[&layout],
+                        push_constant_ranges: &[],
+                    });
+
+            {
+                let shader_desc = include_wgsl!("../www/public/shaders/rt.comp.wgsl");
+                let shader_mod = self.device.create_shader_module(shader_desc);
+                let compute_pipeline =
+                    self.device
+                        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                            label: Some("Compute pipeline"),
+                            layout: Some(&compute_pipeline_layout),
+                            module: &shader_mod,
+                            entry_point: Some("main"),
+                            compilation_options: Default::default(),
+                            cache: None,
+                        });
+                self.compute_pipeline = Some(compute_pipeline);
+            }
+        }
+    }
+
+    fn on_resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) -> bool {
         
         log::warn!("w={}, h={}", new_size.width, new_size.height);
 
@@ -229,7 +321,19 @@ impl MyState {
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
+
+            log::warn!("Building or updating 🛠 buffers");
+            self.camera.set_resolution(
+                new_size.width,
+                new_size.height,
+                true,
+            );
+            self.create_rt_buffer();
+            self.create_camera_uniform();
+            self.create_rt_pipeline();
+            return true;
         }
+        false
     }
 
     fn render (&mut self) -> Result<(), wgpu::SurfaceError>{
@@ -307,6 +411,7 @@ impl ApplicationHandler<MyEvent> for MyApp {
                 log::warn!("State initialisation is done");
                 // log::warn!("Request for size: {:?}", size);
                 // Ask for resize
+                self.surface_configured = false;
                 let _ = window.as_ref().request_inner_size(size);
             }
         }
@@ -385,19 +490,7 @@ impl ApplicationHandler<MyEvent> for MyApp {
                 if let Ok(mut state) = self.state.try_borrow_mut() {
                     if let Some(state) = state.as_mut() {
                         if window_id == state.window().id() {
-                            if physical_size.width > 0 && physical_size.height > 0 {
-                                state.resize(physical_size);
-                                self.surface_configured = true;
-
-                                log::warn!("Building-updating buffers");
-                                state.camera.set_resolution(
-                                    physical_size.width,
-                                    physical_size.height,
-                                    true,
-                                );
-                                state.create_rt_buffer();
-                                state.create_camera_uniform();
-                            }
+                            self.surface_configured = state.on_resize(physical_size);
                         }
                     }
                 }
@@ -412,9 +505,9 @@ impl ApplicationHandler<MyEvent> for MyApp {
                                 match state.render() {
                                     Ok(_) => {}
                                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                                        // NOTE: Hmm
                                         log::warn!("Lost");
-                                        // TODO: Hmm
-                                        state.resize(state.size);
+                                        self.surface_configured = state.on_resize(state.size);
                                     }
 
                                     Err(wgpu::SurfaceError::OutOfMemory) => {

@@ -1,6 +1,11 @@
 use wasm_bindgen::prelude::*;
 use std::{iter, sync::Arc, rc::Rc, cell::RefCell};
+use wgpu::util::DeviceExt;
 
+mod sphere;
+mod camera;
+
+use camera::Camera;
 
 use winit::{
     application::ApplicationHandler,
@@ -18,6 +23,9 @@ struct MyState {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     window: Arc<Window>,
+    camera: Camera,
+    rt_img_buffer: Option<wgpu::Buffer>,
+    camera_uniform_buffer: Option<wgpu::Buffer>,
 }
 
 async fn fetch_shader(shader_path: &str) -> Result<String, JsValue> {
@@ -87,7 +95,6 @@ impl MyState {
             .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
 
-        // let sz = winit::dpi::PhysicalSize::new(500, 500);
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
@@ -159,6 +166,7 @@ impl MyState {
 
         // surface.configure(&device, &config);
 
+        let camera = Camera::new();
         Self {
             surface,
             device,
@@ -167,7 +175,49 @@ impl MyState {
             config,
             size,
             window,
+            camera,
+            rt_img_buffer: None,
+            camera_uniform_buffer: None,
         }
+    }
+
+    fn create_rt_buffer(&mut self) {
+        // TODO: We don't have to use the same format for the raytracing buffer and we don't care about the
+        // alpha channel, although this one could be used for a distance map.
+        let output_size = self
+            .config
+            .format
+            .target_pixel_byte_cost()
+            .and_then(|pixel_bytes| {
+                Some(pixel_bytes as usize * self.size.width as usize * self.size.height as usize)
+            });
+        // White screen
+        let buffer = vec![1 as u8; output_size.unwrap()];
+        let rt_img_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Rt buffer"),
+                contents: buffer.as_slice(),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            });
+        if let Some(img_buffer) = &self.rt_img_buffer {
+            img_buffer.destroy();
+        }
+        self.rt_img_buffer = Some(rt_img_buffer);
+    }
+    fn create_camera_uniform(&mut self) {
+        let camera_uniform_buffer =
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Camera uniform"),
+                    contents: bytemuck::cast_slice(&[self.camera]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+        // NOTE: If it's bound to the shader, what happens ?
+        if let Some(cam_uniform_buf) = &self.camera_uniform_buffer {
+            cam_uniform_buf.destroy();
+        }
+        self.camera_uniform_buffer = Some(camera_uniform_buffer);
     }
 
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -194,6 +244,7 @@ impl MyState {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
+
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
@@ -227,9 +278,9 @@ impl MyState {
     }
 }
 
-enum MyEvent  {
+enum MyEvent {
     InitStateDone {
-        window: Arc<Window>, 
+        window: Arc<Window>,
         size: winit::dpi::PhysicalSize<u32>,
     },
 }
@@ -254,6 +305,7 @@ impl ApplicationHandler<MyEvent> for MyApp {
         match event {
             MyEvent::InitStateDone{window, size} => {
                 log::warn!("State initialisation is done");
+                // log::warn!("Request for size: {:?}", size);
                 // Ask for resize
                 let _ = window.as_ref().request_inner_size(size);
             }
@@ -333,11 +385,22 @@ impl ApplicationHandler<MyEvent> for MyApp {
                 if let Ok(mut state) = self.state.try_borrow_mut() {
                     if let Some(state) = state.as_mut() {
                         if window_id == state.window().id() {
-                            state.resize(physical_size);
-                            self.surface_configured = true;
+                            if physical_size.width > 0 && physical_size.height > 0 {
+                                state.resize(physical_size);
+                                self.surface_configured = true;
+
+                                log::warn!("Building-updating buffers");
+                                state.camera.set_resolution(
+                                    physical_size.width,
+                                    physical_size.height,
+                                    true,
+                                );
+                                state.create_rt_buffer();
+                                state.create_camera_uniform();
+                            }
                         }
                     }
-                }                  
+                }
             }
 
             WindowEvent::RedrawRequested => {

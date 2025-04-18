@@ -35,7 +35,7 @@ struct Camera {
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<storage, read_write> outputBuffer: array<vec4<f32>>;  // Output buffer
 
-@compute @workgroup_size(8, 8)
+@compute @workgroup_size(1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let width = camera.picture_width;
   let index = global_id.y * width + global_id.x;

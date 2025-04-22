@@ -2,7 +2,6 @@ use wasm_bindgen::prelude::*;
 use std::{iter, sync::Arc, rc::Rc, cell::RefCell};
 use wgpu::{include_wgsl, util::DeviceExt};
 
-mod sphere;
 mod camera;
 
 use camera::Camera;
@@ -94,19 +93,11 @@ impl MyState {
 
         let surface_caps = surface.get_capabilities(&adapter);
 
-        // log::warn!("Default texture color format: {:?}", surface_caps.formats[0]);
-        // TODO: We would prefer more control over which format we pick
-        // seems to go to Bgra8UNorm
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .copied()
-            .find(|f| f.is_srgb())
-            .unwrap_or(surface_caps.formats[0]);
-        log::warn!("Texture color format: {:?}", surface_format);
+        // NOTE: This format is available on chrome web
+        let surface_format = wgpu::TextureFormat::Rgba8Unorm;
 
         let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST,
             format: surface_format,
             width: size.width.max(1),
             height: size.height.max(1),
@@ -192,18 +183,21 @@ impl MyState {
         }
     }
 
+    fn img_bytes_per_row(width: u32) -> u32 {
+        let bytes_per_row = std::mem::size_of::<u32>() * width as usize;
+        let alignment = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
+        let pad = (alignment - (bytes_per_row % alignment)) % alignment;
+        let num = bytes_per_row + pad;
+        num as u32
+    }
+
     fn create_rt_buffer(&mut self) {
-        // TODO: We don't have to use the same format for the raytracing buffer and we don't care about the
-        // alpha channel, although this one could be used for a distance map.
-        let output_size = self
-            .config
-            .format
-            .target_pixel_byte_cost()
-            .and_then(|pixel_bytes| {
-                Some(pixel_bytes as usize * self.size.width as usize * self.size.height as usize)
-            });
+        let width = self.size.width;
+        let height = self.size.height;
+        let output_size = MyState::img_bytes_per_row(width) as usize * height as usize;
+
         // Black screen
-        let buffer = vec![0 as u8; output_size.unwrap()];
+        let buffer = vec![0 as u8; output_size];
         let rt_img_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -339,9 +333,9 @@ impl MyState {
     fn render (&mut self) -> Result<(), wgpu::SurfaceError>{
         // log::warn!("Render") ; 
         let output = self.surface.get_current_texture()?;
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        // let view = output
+        //     .texture
+        //     .create_view(&wgpu::TextureViewDescriptor::default());
 
         let mut encoder = self
             .device
@@ -349,31 +343,44 @@ impl MyState {
                 label: Some("Render Encoder"),
             });
 
+        let width = self.size.width;
+        let height = self.size.height;
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
+            let workgrp_x = width.div_ceil(8);
+            let workgrp_y = height.div_ceil(8);
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Compute pass"),
+                ..Default::default()
             });
-
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.draw(0..3, 0..1);
-
+            let compute_pipeline = self.compute_pipeline.as_ref().unwrap();
+            let bind_grp_layout = compute_pipeline.get_bind_group_layout(0);
+            let bind_grp = self.create_rt_bindgrp(&bind_grp_layout);
+            compute_pass.set_pipeline(compute_pipeline);
+            compute_pass.set_bind_group(0, &bind_grp, &[]);
+            compute_pass.dispatch_workgroups(workgrp_x, workgrp_y, 1);
         }
+
+        encoder.copy_buffer_to_texture(
+            wgpu::TexelCopyBufferInfo {
+                buffer: self.rt_img_buffer.as_ref().unwrap(),
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(MyState::img_bytes_per_row(width)),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: &output.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
 
         self.queue.submit(iter::once(encoder.finish()));
         output.present();

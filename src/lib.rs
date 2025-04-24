@@ -194,7 +194,7 @@ impl MyState {
     fn create_rt_buffer(&mut self) {
         let width = self.size.width;
         let height = self.size.height;
-        let output_size = MyState::img_bytes_per_row(width) as usize * height as usize;
+        let output_size = std::mem::size_of::<u32>() * width as usize * height as usize;
 
         // Black screen
         let buffer = vec![0 as u8; output_size];
@@ -359,13 +359,34 @@ impl MyState {
             compute_pass.set_bind_group(0, &bind_grp, &[]);
             compute_pass.dispatch_workgroups(workgrp_x, workgrp_y, 1);
         }
+        // Align this one
+        let width_and_pad = MyState::img_bytes_per_row(width);
+        let stage_rt_img = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (width_and_pad * height) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+
+        // NOTE: Nobody does that, inneficient.
+        // Either I use a texture with textureStore in the shader OR
+        // pass a padded width uniform and index in the shader
+        for row in 0..height {
+            encoder.copy_buffer_to_buffer(
+                self.rt_img_buffer.as_ref().unwrap(),
+                row as u64 * width as u64 * 4,
+                &stage_rt_img,
+                (row * width_and_pad) as u64,
+                4 * width as u64,
+            );
+        }
 
         encoder.copy_buffer_to_texture(
             wgpu::TexelCopyBufferInfo {
-                buffer: self.rt_img_buffer.as_ref().unwrap(),
+                buffer: &stage_rt_img,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(MyState::img_bytes_per_row(width)),
+                    bytes_per_row: Some(width_and_pad),
                     rows_per_image: Some(height),
                 },
             },

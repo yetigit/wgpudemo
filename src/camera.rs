@@ -29,7 +29,7 @@ pub struct Camera {
     /// photo parameters
     // in mm
     focal_length: f32,
-    // in m
+    // in meters
     focus_distance: f32,
     // aperture denominator
     aperture: f32,

@@ -32,20 +32,66 @@ struct Camera {
     
 }
 
+fn hit_sphere(center:vec3<f32>, radius: f32, ro: vec3<f32>, rv: vec3<f32>) ->f32 {
+    let oc = center - ro;
+    let a = dot(rv, rv) ; 
+    let h = dot(rv, oc);
+    let c = dot(oc, oc ) - radius*radius;
+    let discriminant = h*h - a*c;
+
+    if discriminant < 0 {
+        return -1.0;
+    } else {
+        return (h - sqrt(discriminant)) / a;
+    }
+}
+
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(0) @binding(1) var<storage, read_write> outputBuffer: array<u32>;  // Output buffer
 
 @compute @workgroup_size(8,8)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-  let width = camera.picture_width;
-  let height = u32(f32(width) / camera.aspect_ratio);
-  if (global_id.x >= width || global_id.y >= height) {
+  let pic_width = camera.picture_width;
+  let pic_height = u32(f32(pic_width) / camera.aspect_ratio);
+  if (global_id.x >= pic_width || global_id.y >= pic_height) {
     return;
   }
-  let u = f32(global_id.x) / f32(width - 1);
-  let v = f32(global_id.y) / f32(height - 1);
-    
-  let index = global_id.y * width + global_id.x;
-  let pixel_color = vec4<f32>(u, v, 0.3, 1.0);
+
+  let sensor_height = camera.sensor_height;
+  let sensor_width = sensor_height * camera.aspect_ratio;
+
+  let sensor_u = camera.right * -sensor_width;
+  let sensor_v = camera.up * -sensor_height;
+  let pixel_delta_u = sensor_u / f32(pic_width);
+  let pixel_delta_v = sensor_v / f32(pic_height);
+  let sensor_corner = 
+  camera.position + camera.forward * camera.focal_length
+  - ((sensor_u + sensor_v) * 0.5);
+
+  let pixeloo = sensor_corner + ((pixel_delta_u + pixel_delta_v) * 0.5);
+
+  let pixel_pos = pixeloo + 
+  (pixel_delta_u * f32(global_id.x) + pixel_delta_v * f32(global_id.y));
+  let ray = pixel_pos - camera.position;
+
+  let sphere_center = vec3<f32>(0.0, 0.0, 500.0);
+  let sphere_radius = 50.0;
+
+  let s = hit_sphere(sphere_center, sphere_radius, camera.position, ray);
+
+  var ray_color = vec3<f32>(0.0, 0.0, 0.0);
+
+  if s > 0.0 {
+    ray_color = normalize((camera.position + ray * s) - sphere_center);
+    ray_color *= 0.5;
+    ray_color += vec3<f32>(0.5, 0.5, 0.5);
+  }else{
+    let unit_direction = normalize(ray);
+    let a = 0.5 * (unit_direction.y + 1.0);
+    ray_color = (1.0 - a) * vec3<f32>(1.0, 1.0, 1.0) + a * vec3<f32>(0.0, 1.0, 0.0);
+  }
+
+  let index = global_id.y * pic_width + global_id.x;
+  let pixel_color = vec4<f32>(ray_color, 1.0);
   outputBuffer[index] = pack4x8unorm(pixel_color);
 }

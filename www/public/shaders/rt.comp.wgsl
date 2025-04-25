@@ -88,7 +88,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   }else{
     let unit_direction = normalize(ray);
     let a = 0.5 * (unit_direction.y + 1.0);
-    ray_color = (1.0 - a) * vec3<f32>(1.0, 1.0, 1.0) + a * vec3<f32>(0.0, 1.0, 0.0);
+    ray_color = (1.0 - a) * vec3<f32>(1.0, 1.0, 1.0) + a * vec3<f32>(0.2, 0.3, 0.8);
   }
 
   let index = global_id.y * pic_width + global_id.x;

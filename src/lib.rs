@@ -27,7 +27,8 @@ struct MyState {
     window: Arc<Window>,
     camera: Camera,
     compute_pipeline: Option<wgpu::ComputePipeline>,
-    rt_img_buffer: Option<wgpu::Buffer>,
+    texture_rt: Option<wgpu::Texture>,
+    texture_rt_view: Option<wgpu::TextureView>,
     camera_uniform_buffer: Option<wgpu::Buffer>,
 }
 
@@ -51,11 +52,11 @@ async fn fetch_shader(shader_path: &str) -> Result<String, JsValue> {
 
 impl MyState {
     const CAMERA_UNIFORM_BIND:u32 = 0;
-    const IMG_BUFFER_BIND:u32 = 1;
+    const IMG_TEXTURE_BIND:u32 = 1;
     fn window(&self) -> &Window {
         &self.window
     }
-    async fn new(window: Window) -> Self {
+    async fn new(window: Window, color_fmt: wgpu::TextureFormat) -> Self {
         let window = Arc::new(window);
         let size = window.inner_size();
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -93,8 +94,7 @@ impl MyState {
 
         let surface_caps = surface.get_capabilities(&adapter);
 
-        // NOTE: This format is available on chrome web
-        let surface_format = wgpu::TextureFormat::Rgba8Unorm;
+        let surface_format = color_fmt;
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST,
@@ -178,8 +178,9 @@ impl MyState {
             window,
             camera,
             compute_pipeline: None,
-            rt_img_buffer: None,
             camera_uniform_buffer: None,
+            texture_rt: None,
+            texture_rt_view: None,
         }
     }
 
@@ -191,25 +192,37 @@ impl MyState {
         num as u32
     }
 
-    fn create_rt_buffer(&mut self) {
+    fn create_img_texture(&mut self) {
         let width = self.size.width;
         let height = self.size.height;
-        let output_size = std::mem::size_of::<u32>() * width as usize * height as usize;
+        let buffer = vec![0 as u8; (width * height) as usize * std::mem::size_of::<u32>()];
 
-        // Black screen
-        let buffer = vec![0 as u8; output_size];
-        let rt_img_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Rt buffer"),
-                contents: buffer.as_slice(),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            });
-        if let Some(img_buffer) = &self.rt_img_buffer {
-            img_buffer.destroy();
+        let texture = self.device.create_texture_with_data(
+            &self.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Storage texture"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                format: self.config.format,
+                usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+                dimension: wgpu::TextureDimension::D2,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            &buffer,
+        );
+        if let Some(tex) = self.texture_rt.as_ref() {
+            tex.destroy();
         }
-        self.rt_img_buffer = Some(rt_img_buffer);
+        self.texture_rt_view = Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        self.texture_rt = Some(texture);
     }
+
     fn create_camera_uniform(&mut self) {
         let camera_uniform_buffer =
             self.device
@@ -219,13 +232,12 @@ impl MyState {
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
         // NOTE: If it's bound to the shader, what happens ?
-        if let Some(cam_uniform_buf) = &self.camera_uniform_buffer {
+        if let Some(cam_uniform_buf) = self.camera_uniform_buffer.as_ref() {
             cam_uniform_buf.destroy();
         }
         self.camera_uniform_buffer = Some(camera_uniform_buffer);
     }
 
-    // TODO: Make constants for the binding index
     fn create_rt_bindgrp(&self, layout: &wgpu::BindGroupLayout) -> wgpu::BindGroup {
         self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Main bind group"),
@@ -241,8 +253,10 @@ impl MyState {
                         .as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: MyState::IMG_BUFFER_BIND,
-                    resource: self.rt_img_buffer.as_ref().unwrap().as_entire_binding(),
+                    binding: MyState::IMG_TEXTURE_BIND,
+                    resource: wgpu::BindingResource::TextureView(
+                        self.texture_rt_view.as_ref().unwrap(),
+                    ),
                 },
             ],
         })
@@ -268,12 +282,12 @@ impl MyState {
                         },
                         // img storage buffer
                         wgpu::BindGroupLayoutEntry {
-                            binding: MyState::IMG_BUFFER_BIND,
+                            binding: MyState::IMG_TEXTURE_BIND,
                             visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: false },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
+                            ty: wgpu::BindingType::StorageTexture {
+                                access: wgpu::StorageTextureAccess::WriteOnly,
+                                format: self.config.format,
+                                view_dimension: wgpu::TextureViewDimension::D2,
                             },
                             count: None,
                         },
@@ -317,12 +331,13 @@ impl MyState {
             self.surface.configure(&self.device, &self.config);
 
             log::warn!("Building or updating 🛠 buffers");
+            self.camera.set_focal_length(50.0);
             self.camera.set_resolution(
                 new_size.width,
                 new_size.height,
                 true,
             );
-            self.create_rt_buffer();
+            self.create_img_texture();
             self.create_camera_uniform();
             self.create_rt_pipeline();
             return true;
@@ -359,36 +374,13 @@ impl MyState {
             compute_pass.set_bind_group(0, &bind_grp, &[]);
             compute_pass.dispatch_workgroups(workgrp_x, workgrp_y, 1);
         }
-        // Align this one
-        let width_and_pad = MyState::img_bytes_per_row(width);
-        let stage_rt_img = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: (width_and_pad * height) as u64,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-
-        // NOTE: Nobody does that, inneficient.
-        // Either I use a texture with textureStore in the shader OR
-        // pass a padded width uniform and index in the shader
-        for row in 0..height {
-            encoder.copy_buffer_to_buffer(
-                self.rt_img_buffer.as_ref().unwrap(),
-                row as u64 * width as u64 * 4,
-                &stage_rt_img,
-                (row * width_and_pad) as u64,
-                4 * width as u64,
-            );
-        }
-
-        encoder.copy_buffer_to_texture(
-            wgpu::TexelCopyBufferInfo {
-                buffer: &stage_rt_img,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(width_and_pad),
-                    rows_per_image: Some(height),
-                },
+        let texture = self.texture_rt.as_ref().unwrap();
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
             },
             wgpu::TexelCopyTextureInfo {
                 texture: &output.texture,
@@ -467,7 +459,7 @@ impl ApplicationHandler<MyEvent> for MyApp {
         let state_clone = self.state.clone();
         let event_proxy_clone = self.event_proxy.clone();
         wasm_bindgen_futures::spawn_local(async move {
-            let new_state = MyState::new(window).await;
+            let new_state = MyState::new(window, wgpu::TextureFormat::Rgba8Unorm).await;
 
             match state_clone.try_borrow_mut() {
                 Ok(mut state_obj) => {

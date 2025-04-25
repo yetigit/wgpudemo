@@ -46,8 +46,10 @@ fn hit_sphere(center:vec3<f32>, radius: f32, ro: vec3<f32>, rv: vec3<f32>) ->f32
     }
 }
 
-@group(0) @binding(0) var<uniform> camera: Camera;
-@group(0) @binding(1) var<storage, read_write> outputBuffer: array<u32>;  // Output buffer
+@group(0) @binding(0) 
+var<uniform> camera: Camera;
+@group(0) @binding(1) 
+var outputTexture: texture_storage_2d<rgba8unorm, write>;
 
 @compute @workgroup_size(8,8)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -82,9 +84,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   var ray_color = vec3<f32>(0.0, 0.0, 0.0);
 
   if s > 0.0 {
-    ray_color = normalize((camera.position + ray * s) - sphere_center);
-    ray_color *= 0.5;
-    ray_color += vec3<f32>(0.5, 0.5, 0.5);
+    ray_color = abs(normalize((camera.position + ray * s) - sphere_center));
   }else{
     let unit_direction = normalize(ray);
     let a = 0.5 * (unit_direction.y + 1.0);
@@ -93,5 +93,5 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   let index = global_id.y * pic_width + global_id.x;
   let pixel_color = vec4<f32>(ray_color, 1.0);
-  outputBuffer[index] = pack4x8unorm(pixel_color);
+  textureStore(outputTexture, vec2<i32>((global_id.xy)), pixel_color);
 }

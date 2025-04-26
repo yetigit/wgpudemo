@@ -59,8 +59,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     return;
   }
   // Right hand system
-  let forward = camera.look_at - camera.position;
-  let right = cross(camera.up_vector, forward);
+  let forward = normalize(camera.look_at - camera.position);
+  let right = normalize(cross(camera.up_vector, forward));
   let up = cross(forward, right);
 
   // Building the sensor frame
@@ -79,7 +79,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   // Create ray
   let pixel_pos = pixeloo + 
-  (pixel_delta_u * f32(global_id.x) + pixel_delta_v * f32(global_id.y));
+  pixel_delta_u * f32(global_id.x) + 
+  pixel_delta_v * f32(global_id.y);
+
   let ray = pixel_pos - camera.position;
 
   let sphere_center = vec3<f32>(75.0, 0.0, 500.0);

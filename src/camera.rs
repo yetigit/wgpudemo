@@ -2,7 +2,7 @@ use nalgebra::Vector3;
 
 type Vector3f = Vector3<f32>;
 
-#[allow(dead_code)]
+// TODO: Need a barebone version of this to send to the GPU 
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Camera {

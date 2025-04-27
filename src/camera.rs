@@ -7,11 +7,11 @@ type Vector3f = Vector3<f32>;
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Camera {
     /// matrix parameters
-    up_vector: [f32; 3],
+    pub up_vector: [f32; 3],
     _pad0: u32,
-    position: [f32; 3],
+    pub position: [f32; 3],
     _pad1: u32,
-    look_at: [f32; 3],
+    pub look_at: [f32; 3],
     _pad2: u32,
 
     /// basis,

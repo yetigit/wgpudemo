@@ -246,18 +246,18 @@ impl Renderer {
         );
         #[rustfmt::skip]
         let bottom_sphere  =  Sphere::new(
-             [0.0, -750.0, 500.0],
+             [0.0, -1050.0, 500.0],
              [0.0, 0.0, 1.0],
-             700.0,
+             1000.0,
         );
 
         let mut spheres = vec![top_sphere, bottom_sphere];
         #[rustfmt::skip]
         spheres.push (
           Sphere::new(
-             [-45.0, 0.0, 200.0],
+             [-80.0, 0.0, 300.0],
              [0.0, 1.0, 0.0],
-             45.0)
+             50.0)
         ); 
 
         let buf = self
@@ -386,6 +386,8 @@ impl Renderer {
                 new_size.height,
                 true,
             );
+            self.camera.position = [0.0, 400.0, -100.0]; 
+            self.camera.look_at = [0.0, 0.0, 500.0];
             self.create_img_texture();
             self.create_camera_uniform();
             self.create_rt_pipeline();

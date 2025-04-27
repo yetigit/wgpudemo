@@ -240,15 +240,15 @@ impl Renderer {
     pub fn make_world(&mut self) {
         #[rustfmt::skip]
         let top_sphere = Sphere::new(
-             [75.0, 0.0, 500.0],
+             [0.0, 0.0, 500.0],
              [1.0, 0.0, 0.0],
              50.0,
         );
         #[rustfmt::skip]
         let bottom_sphere  =  Sphere::new(
-             [-75.0, 0.0, 500.0],
-             [1.0, 0.0, 0.0],
-             50.0,
+             [0.0, -300.0, 500.0],
+             [0.0, 0.0, 1.0],
+             250.0,
         );
 
         let spheres = vec![top_sphere, bottom_sphere];

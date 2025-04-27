@@ -78,6 +78,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     return;
   }
   // Right hand system
+  // NOTE: This should be done outside
   let forward = normalize(camera.look_at - camera.position);
   let right = normalize(cross(camera.up_vector, forward));
   let up = cross(forward, right);
@@ -105,7 +106,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   var ray_color = vec3<f32>(0.0, 0.0, 0.0);
   var got_hit = false;
-
+  var closest_hit = -1.0;
+  var close_sphere = 0u;
   for (var i = 0u; i < arrayLength(&world_spheres); i++) {
     let sphere_center = world_spheres[i].position;
     let sphere_radius = world_spheres[i].radius;
@@ -113,16 +115,28 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Cast ray
     let s = hit_sphere(sphere_center, sphere_radius, camera.position, ray);
 
-    // Hit Color
     if s > 0.0 {
-      ray_color = abs(normalize((camera.position + ray * s) - sphere_center));
-      got_hit = true;
-      break; 
+
+      if closest_hit < 0.0 {
+        closest_hit = s;
+        close_sphere = i;
+      }
+      if s < closest_hit {
+        closest_hit = s;
+        close_sphere = i;
+      }
+
     }
   }
 
-  // Miss Color
-  if got_hit == false{
+  if closest_hit > 0.0 {
+      // Hit Color
+      ray_color = abs(normalize(
+            (camera.position + ray * closest_hit) - world_spheres[close_sphere].position)
+      );
+
+  }else {
+    // Miss Color
     let unit_direction = normalize(ray);
     let a = 0.5 * (unit_direction.y + 1.0);
     ray_color = (1.0 - a) * vec3<f32>(1.0, 1.0, 1.0) + a * vec3<f32>(0.2, 0.3, 0.8);

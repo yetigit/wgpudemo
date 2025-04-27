@@ -246,12 +246,19 @@ impl Renderer {
         );
         #[rustfmt::skip]
         let bottom_sphere  =  Sphere::new(
-             [0.0, -300.0, 500.0],
+             [0.0, -750.0, 500.0],
              [0.0, 0.0, 1.0],
-             250.0,
+             700.0,
         );
 
-        let spheres = vec![top_sphere, bottom_sphere];
+        let mut spheres = vec![top_sphere, bottom_sphere];
+        #[rustfmt::skip]
+        spheres.push (
+          Sphere::new(
+             [-45.0, 0.0, 200.0],
+             [0.0, 1.0, 0.0],
+             45.0)
+        ); 
 
         let buf = self
             .device

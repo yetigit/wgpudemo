@@ -7,7 +7,6 @@ mod camera;
 mod sphere;
 
 use renderer::Renderer; 
-use sphere::Sphere;
 
 // TODO:
 // -Seperate MyState in a mod
@@ -40,6 +39,13 @@ impl App {
             surface_configured: false,
         }
     }
+    fn make_world(&mut self) {
+        if let Ok(mut state) = self.state.try_borrow_mut() {
+            if let Some(state) = state.as_mut() {
+                state.make_world();
+            }
+        }
+    }
 }
 
 impl ApplicationHandler<AppEvent> for App {
@@ -48,6 +54,8 @@ impl ApplicationHandler<AppEvent> for App {
             AppEvent::InitStateDone{window, size} => {
                 log::warn!("State initialisation is done");
                 // log::warn!("Request for size: {:?}", size);
+                // Create world
+                self.make_world();
                 // Ask for resize
                 self.surface_configured = false;
                 let _ = window.as_ref().request_inner_size(size);

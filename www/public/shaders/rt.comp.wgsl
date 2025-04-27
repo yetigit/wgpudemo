@@ -32,6 +32,21 @@ struct Camera {
     
 }
 
+ struct Sphere {
+   position: vec3<f32>,
+
+   _pad0: u32,
+   color: vec3<f32>,
+
+   _pad1: u32,
+
+   radius: f32,
+
+   _pad2x: u32,
+   _pad2y: u32,
+   _pad2z: u32,
+}
+
 fn hit_sphere(center:vec3<f32>, radius: f32, ro: vec3<f32>, rv: vec3<f32>) ->f32 {
     let oc = center - ro;
     let a = dot(rv, rv) ; 
@@ -48,8 +63,12 @@ fn hit_sphere(center:vec3<f32>, radius: f32, ro: vec3<f32>, rv: vec3<f32>) ->f32
 
 @group(0) @binding(0) 
 var<uniform> camera: Camera;
+
 @group(0) @binding(1) 
 var outputTexture: texture_storage_2d<rgba8unorm, write>;
+
+@group(0) @binding(2) 
+var<storage> world_spheres: array<Sphere>;
 
 @compute @workgroup_size(8,8)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -84,18 +103,26 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   let ray = pixel_pos - camera.position;
 
-  let sphere_center = vec3<f32>(75.0, 0.0, 500.0);
-  let sphere_radius = 50.0;
-
-  // Cast ray
-  let s = hit_sphere(sphere_center, sphere_radius, camera.position, ray);
-
-  // Color
   var ray_color = vec3<f32>(0.0, 0.0, 0.0);
+  var got_hit = false;
 
-  if s > 0.0 {
-    ray_color = abs(normalize((camera.position + ray * s) - sphere_center));
-  }else{
+  for (var i = 0u; i < arrayLength(&world_spheres); i++) {
+    let sphere_center = world_spheres[i].position;
+    let sphere_radius = world_spheres[i].radius;
+
+    // Cast ray
+    let s = hit_sphere(sphere_center, sphere_radius, camera.position, ray);
+
+    // Hit Color
+    if s > 0.0 {
+      ray_color = abs(normalize((camera.position + ray * s) - sphere_center));
+      got_hit = true;
+      break; 
+    }
+  }
+
+  // Miss Color
+  if got_hit == false{
     let unit_direction = normalize(ray);
     let a = 0.5 * (unit_direction.y + 1.0);
     ray_color = (1.0 - a) * vec3<f32>(1.0, 1.0, 1.0) + a * vec3<f32>(0.2, 0.3, 0.8);

@@ -5,6 +5,7 @@ use wgpu::{include_wgsl, util::DeviceExt};
 use winit::window::Window; 
 
 use crate::camera::Camera;
+use crate::sphere::Sphere;
 
 pub struct Renderer {
     // Wgpu objects
@@ -19,6 +20,7 @@ pub struct Renderer {
     texture_rt: Option<wgpu::Texture>,
     texture_rt_view: Option<wgpu::TextureView>,
     camera_uniform: Option<wgpu::Buffer>,
+    spheres_buf: Option<wgpu::Buffer>,
 
     // Misc
     pub window: Arc<Window>,
@@ -29,6 +31,7 @@ pub struct Renderer {
 impl Renderer {
     const CAMERA_UNIFORM_BIND:u32 = 0;
     const IMG_TEXTURE_BIND:u32 = 1;
+    const SPHERE_BUF_BIND: u32 = 2;
     pub fn window(&self) -> &Window {
         &self.window
     }
@@ -173,6 +176,7 @@ impl Renderer {
             camera,
             compute_pipeline: None,
             camera_uniform: None,
+            spheres_buf: None,
             texture_rt: None,
             texture_rt_view: None,
         }
@@ -233,6 +237,35 @@ impl Renderer {
         self.camera_uniform= Some(camera_uniform_buffer);
     }
 
+    pub fn make_world(&mut self) {
+        #[rustfmt::skip]
+        let top_sphere = Sphere::new(
+             [75.0, 0.0, 500.0],
+             [1.0, 0.0, 0.0],
+             50.0,
+        );
+        #[rustfmt::skip]
+        let bottom_sphere  =  Sphere::new(
+             [-75.0, 0.0, 500.0],
+             [1.0, 0.0, 0.0],
+             50.0,
+        );
+
+        let spheres = vec![top_sphere, bottom_sphere];
+
+        let buf = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Spheres array"),
+                contents: bytemuck::cast_slice(spheres.as_slice()),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+        if let Some(sphere_buf) = self.spheres_buf.as_ref() {
+            sphere_buf.destroy();
+        }
+        self.spheres_buf = Some(buf);
+    }
+
     fn create_rt_bindgrp(&self, layout: &wgpu::BindGroupLayout) -> wgpu::BindGroup {
         self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Main bind group"),
@@ -252,6 +285,10 @@ impl Renderer {
                     resource: wgpu::BindingResource::TextureView(
                         self.texture_rt_view.as_ref().unwrap(),
                     ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: Renderer::SPHERE_BUF_BIND,
+                    resource: self.spheres_buf.as_ref().unwrap().as_entire_binding(),
                 },
             ],
         })
@@ -283,6 +320,16 @@ impl Renderer {
                                 access: wgpu::StorageTextureAccess::WriteOnly,
                                 format: self.config.format,
                                 view_dimension: wgpu::TextureViewDimension::D2,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: Renderer::SPHERE_BUF_BIND,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
                             },
                             count: None,
                         },
@@ -326,7 +373,7 @@ impl Renderer {
             self.surface.configure(&self.device, &self.config);
 
             log::warn!("Building or updating 🛠 buffers");
-            self.camera.set_focal_length(50.0);
+            self.camera.set_focal_length(35.0);
             self.camera.set_resolution(
                 new_size.width,
                 new_size.height,

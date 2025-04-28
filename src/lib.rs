@@ -5,8 +5,9 @@ use std::{sync::Arc, rc::Rc, cell::RefCell};
 mod renderer;
 mod camera;
 mod sphere;
+mod intersection;
 
-use renderer::Renderer; 
+use crate::renderer::Renderer; 
 
 // TODO:
 // -Seperate MyState in a mod

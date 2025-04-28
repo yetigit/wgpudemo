@@ -7,6 +7,8 @@ use winit::window::Window;
 use crate::camera::Camera;
 use crate::sphere::Sphere;
 
+use crate::intersection::{ Ray, HitRecord };
+
 pub struct Renderer {
     // Wgpu objects
     surface: wgpu::Surface<'static>,
@@ -17,10 +19,14 @@ pub struct Renderer {
     compute_pipeline: Option<wgpu::ComputePipeline>,
 
     // Buffers and textures
-    texture_rt: Option<wgpu::Texture>,
-    texture_rt_view: Option<wgpu::TextureView>,
+    // Ray pass
     camera_uniform: Option<wgpu::Buffer>,
+    rays_buf: Option<wgpu::Buffer>,
+    // Intersection pass
     spheres_buf: Option<wgpu::Buffer>,
+    // Final texture
+    frame_texture: Option<wgpu::Texture>,
+    frame_texview: Option<wgpu::TextureView>,
 
     // Misc
     pub window: Arc<Window>,
@@ -175,13 +181,15 @@ impl Renderer {
             window,
             camera,
             compute_pipeline: None,
+            rays_buf: None,
             camera_uniform: None,
             spheres_buf: None,
-            texture_rt: None,
-            texture_rt_view: None,
+            frame_texture: None,
+            frame_texview: None,
         }
     }
 
+    #[allow(dead_code)]
     fn img_bytes_per_row(width: u32) -> u32 {
         let bytes_per_row = std::mem::size_of::<u32>() * width as usize;
         let alignment = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
@@ -189,6 +197,25 @@ impl Renderer {
         let pad = (alignment - (bytes_per_row % alignment)) % alignment;
         let num = bytes_per_row + pad;
         num as u32
+    }
+
+    // NOTE: For now one ray per pixel
+    fn create_ray_buf (&mut self ) {
+        let width = self.size.width;
+        let height = self.size.height;
+        let buffer = vec![0 as u8; (width * height) as usize * std::mem::size_of::<Ray>()];
+
+        let ray_buf = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Ray buffer"),
+                contents: &buffer,
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+        if let Some(buf) = self.rays_buf.as_ref() {
+            buf.destroy();
+        }
+        self.rays_buf = Some(ray_buf);
     }
 
     fn create_img_texture(&mut self) {
@@ -215,11 +242,11 @@ impl Renderer {
             wgpu::util::TextureDataOrder::LayerMajor,
             &buffer,
         );
-        if let Some(tex) = self.texture_rt.as_ref() {
+        if let Some(tex) = self.frame_texture.as_ref() {
             tex.destroy();
         }
-        self.texture_rt_view = Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
-        self.texture_rt = Some(texture);
+        self.frame_texview = Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        self.frame_texture = Some(texture);
     }
 
     fn create_camera_uniform(&mut self) {
@@ -290,7 +317,7 @@ impl Renderer {
                 wgpu::BindGroupEntry {
                     binding: Renderer::IMG_TEXTURE_BIND,
                     resource: wgpu::BindingResource::TextureView(
-                        self.texture_rt_view.as_ref().unwrap(),
+                        self.frame_texview.as_ref().unwrap(),
                     ),
                 },
                 wgpu::BindGroupEntry {
@@ -425,7 +452,7 @@ impl Renderer {
             compute_pass.set_bind_group(0, &bind_grp, &[]);
             compute_pass.dispatch_workgroups(workgrp_x, workgrp_y, 1);
         }
-        let texture = self.texture_rt.as_ref().unwrap();
+        let texture = self.frame_texture.as_ref().unwrap();
         encoder.copy_texture_to_texture(
             wgpu::TexelCopyTextureInfo {
                 texture,

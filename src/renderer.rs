@@ -16,12 +16,14 @@ pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
-    compute_pipeline: Option<wgpu::ComputePipeline>,
+    compute_pipeline: [Option<wgpu::ComputePipeline>; 4],
 
     // Buffers and textures
     // Ray pass
     camera_uniform: Option<wgpu::Buffer>,
+    dim_uniform: Option<wgpu::Buffer>,
     rays_buf: Option<wgpu::Buffer>,
+    hit_buf: Option<wgpu::Buffer>,
     // Intersection pass
     spheres_buf: Option<wgpu::Buffer>,
     // Final texture
@@ -35,10 +37,21 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    const CAMERA_UNIFORM_BIND:u32 = 0;
-    const IMG_TEXTURE_BIND:u32 = 1;
+    const CAMERA_UNIFORM_BIND: u32 = 0;
+    const IMG_TEX_BIND: u32 = 1;
     const RAYS_BUF_BIND: u32 = 2;
     const SPHERE_BUF_BIND: u32 = 3;
+    const HIT_REC_BUF_BIND: u32 = 4;
+    const DIM_UNIFORM_BIND: u32 = 5;
+
+    fn ray_pipeline(&self) -> Option<&wgpu::ComputePipeline> {
+        self.compute_pipeline[0].as_ref()
+    }
+
+    fn intersect_pipeline(&self) -> Option<&wgpu::ComputePipeline> {
+        self.compute_pipeline[1].as_ref()
+    }
+
     pub fn window(&self) -> &Window {
         &self.window
     }
@@ -121,14 +134,22 @@ impl Renderer {
             config,
             size,
             window,
+            compute_pipeline: [None, None, None, None],
             camera,
-            compute_pipeline: None,
+            dim_uniform: None,
             rays_buf: None,
+            hit_buf: None,
             camera_uniform: None,
             spheres_buf: None,
             frame_texture: None,
             frame_texview: None,
         }
+    }
+
+    // NOTE: Later we had other parameters to control the number of rays per pixel
+    // NOTE: For now one ray per pixel
+    pub fn num_rays(&self) -> u32 {
+        self.size.width * self.size.height
     }
 
     #[allow(dead_code)]
@@ -141,11 +162,24 @@ impl Renderer {
         num as u32
     }
 
-    // NOTE: For now one ray per pixel
+    fn create_rec_buf (&mut self ) {
+        let buffer = vec![0 as u8; self.num_rays() as usize * std::mem::size_of::<HitRecord>()];
+
+        let hit_buf = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Hit rec buffer"),
+                contents: &buffer,
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+        if let Some(buf) = self.hit_buf.as_ref() {
+            buf.destroy();
+        }
+        self.hit_buf = Some(hit_buf);
+    }
+
     fn create_ray_buf (&mut self ) {
-        let width = self.size.width;
-        let height = self.size.height;
-        let buffer = vec![0 as u8; (width * height) as usize * std::mem::size_of::<Ray>()];
+        let buffer = vec![0 as u8; self.num_rays() as usize * std::mem::size_of::<Ray>()];
 
         let ray_buf = self
             .device
@@ -191,6 +225,26 @@ impl Renderer {
         self.frame_texture = Some(texture);
     }
 
+    fn create_dim_uniform (&mut self)  {
+        let width = self.size.width as u64;
+        let height = self.size.height as u64;
+        let encoded = (width << 32) | height;
+        let dims = encoded.to_le_bytes();
+
+        let uniform_buf =
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Dimensions uniform"),
+                    contents: &dims,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+        if let Some(uniform) = self.dim_uniform.as_ref() {
+            uniform.destroy();
+        }
+        self.dim_uniform= Some(uniform_buf);
+    }
+
+
     fn create_camera_uniform(&mut self) {
         let camera_uniform_buffer =
             self.device
@@ -199,7 +253,6 @@ impl Renderer {
                     contents: bytemuck::cast_slice(&[self.camera]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
-        // NOTE: If it's bound to the shader, what happens ?
         if let Some(cam_uniform_buf) = self.camera_uniform.as_ref() {
             cam_uniform_buf.destroy();
         }
@@ -243,11 +296,12 @@ impl Renderer {
     }
 
 
-    fn create_rt_pipeline(&mut self) {
-        if self.compute_pipeline.is_none() {
+    fn create_pipelines(&mut self) {
+        let rays_grp_lay = binding::buf_bind_group_lay(&self.device, Renderer::RAYS_BUF_BIND, false);
+
+        if self.ray_pipeline().is_none() {
             let camera_grp_lay =
-                binding::camera_bind_group_lay(&self.device, Renderer::CAMERA_UNIFORM_BIND);
-            let rays_grp_lay = binding::rays_bind_group_lay(&self.device, Renderer::RAYS_BUF_BIND, false);
+                binding::uniform_bind_group_lay(&self.device, Renderer::CAMERA_UNIFORM_BIND);
 
             let compute_pipeline_layout =
                 self.device
@@ -257,21 +311,55 @@ impl Renderer {
                         push_constant_ranges: &[],
                     });
 
-            {
-                let shader_desc = include_wgsl!("../www/public/shaders/rays.wgsl");
-                let shader_mod = self.device.create_shader_module(shader_desc);
-                let compute_pipeline =
-                    self.device
-                        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                            label: Some("Compute pipeline"),
-                            layout: Some(&compute_pipeline_layout),
-                            module: &shader_mod,
-                            entry_point: Some("main"),
-                            compilation_options: Default::default(),
-                            cache: None,
-                        });
-                self.compute_pipeline = Some(compute_pipeline);
-            }
+            let shader_desc = include_wgsl!("../www/public/shaders/rays.wgsl");
+            let shader_mod = self.device.create_shader_module(shader_desc);
+            let compute_pipeline =
+                self.device
+                    .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                        label: Some("Rays pipeline"),
+                        layout: Some(&compute_pipeline_layout),
+                        module: &shader_mod,
+                        entry_point: Some("main"),
+                        compilation_options: Default::default(),
+                        cache: None,
+                    });
+            self.compute_pipeline[0] = Some(compute_pipeline);
+        }
+
+        if self.intersect_pipeline().is_none() {
+            let hit_rec_lay =
+                binding::buf_bind_group_lay(&self.device, Renderer::HIT_REC_BUF_BIND, false);
+            let dim_grp_lay =
+                binding::uniform_bind_group_lay(&self.device, Renderer::DIM_UNIFORM_BIND);
+            let sphere_grp_lay =
+                binding::buf_bind_group_lay(&self.device, Renderer::SPHERE_BUF_BIND, true);
+
+            let compute_pipeline_layout =
+                self.device
+                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: None,
+                        bind_group_layouts: &[
+                            &rays_grp_lay,
+                            &hit_rec_lay,
+                            &sphere_grp_lay,
+                            &dim_grp_lay,
+                        ],
+                        push_constant_ranges: &[],
+                    });
+
+            let shader_desc = include_wgsl!("../www/public/shaders/intersect.wgsl");
+            let shader_mod = self.device.create_shader_module(shader_desc);
+            let compute_pipeline =
+                self.device
+                    .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                        label: Some("Intersect pipeline"),
+                        layout: Some(&compute_pipeline_layout),
+                        module: &shader_mod,
+                        entry_point: Some("main"),
+                        compilation_options: Default::default(),
+                        cache: None,
+                    });
+            self.compute_pipeline[1] = Some(compute_pipeline);
         }
     }
 
@@ -294,13 +382,34 @@ impl Renderer {
             );
             self.camera.position = [0.0, 400.0, -100.0]; 
             self.camera.look_at = [0.0, 0.0, 500.0];
+
             self.create_img_texture();
             self.create_camera_uniform();
+            self.create_dim_uniform();
             self.create_ray_buf();
-            self.create_rt_pipeline();
+            self.create_rec_buf();
+
+            self.create_pipelines();
             return true;
         }
         false
+    }
+
+    fn set_buffer_binding<'a, 'b>(
+        &self,
+        compute_pass: &mut wgpu::ComputePass<'a>,
+        pipeline: &wgpu::ComputePipeline,
+        resource: wgpu::BindingResource<'b>,
+        grp_index: u32,
+        binding: u32,
+    ) {
+        let grp = binding::bind_group_from(
+            &self.device,
+            resource,
+            binding,
+            &pipeline.get_bind_group_layout(grp_index),
+        );
+        compute_pass.set_bind_group(grp_index, &grp, &[]);
     }
 
     pub fn render (&mut self) -> Result<(), wgpu::SurfaceError>{
@@ -324,34 +433,73 @@ impl Renderer {
             label: Some("Ray pass"),
             ..Default::default()
         });
-        let compute_pipeline = self.compute_pipeline.as_ref().unwrap();
+        let compute_pipeline = self.ray_pipeline().unwrap();
 
         compute_pass.set_pipeline(compute_pipeline);
 
-        {
-            let camera_grp_lay = compute_pipeline.get_bind_group_layout(0);
-            let camera_grp = binding::camera_bind_group(
-                &self.device,
-                self.camera_uniform.as_ref().unwrap().as_entire_binding(),
-                Renderer::CAMERA_UNIFORM_BIND,
-                &camera_grp_lay,
-            );
+        self.set_buffer_binding(
+            &mut compute_pass,
+            compute_pipeline,
+            self.camera_uniform.as_ref().unwrap().as_entire_binding(),
+            0,
+            Renderer::CAMERA_UNIFORM_BIND,
+        );
 
-            let rays_grp_lay = compute_pipeline.get_bind_group_layout(1);
-            let rays_grp = binding::rays_bind_group(
-                &self.device,
-                self.rays_buf.as_ref().unwrap().as_entire_binding(),
-                Renderer::RAYS_BUF_BIND,
-                &rays_grp_lay,
-            );
-            compute_pass.set_bind_group(0, &camera_grp, &[]);
-            compute_pass.set_bind_group(1, &rays_grp, &[]);
-        }
+        self.set_buffer_binding(
+            &mut compute_pass,
+            compute_pipeline,
+            self.rays_buf.as_ref().unwrap().as_entire_binding(),
+            1,
+            Renderer::RAYS_BUF_BIND,
+        );
 
         compute_pass.dispatch_workgroups(workgrp_x, workgrp_y, 1);
         std::mem::drop(compute_pass);
 
         // Intersection pass ##################################
+
+        let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("Intersect pass"),
+            ..Default::default()
+        });
+        let compute_pipeline = self.intersect_pipeline().unwrap();
+
+        compute_pass.set_pipeline(compute_pipeline);
+
+        self.set_buffer_binding(
+            &mut compute_pass,
+            compute_pipeline,
+            self.rays_buf.as_ref().unwrap().as_entire_binding(),
+            0,
+            Renderer::RAYS_BUF_BIND,
+        );
+
+        self.set_buffer_binding(
+            &mut compute_pass,
+            compute_pipeline,
+            self.hit_buf.as_ref().unwrap().as_entire_binding(),
+            1,
+            Renderer::HIT_REC_BUF_BIND,
+        );
+
+        self.set_buffer_binding(
+            &mut compute_pass,
+            compute_pipeline,
+            self.spheres_buf.as_ref().unwrap().as_entire_binding(),
+            2,
+            Renderer::SPHERE_BUF_BIND,
+        );
+
+        self.set_buffer_binding(
+            &mut compute_pass,
+            compute_pipeline,
+            self.dim_uniform.as_ref().unwrap().as_entire_binding(),
+            3,
+            Renderer::DIM_UNIFORM_BIND,
+        );
+
+        compute_pass.dispatch_workgroups(workgrp_x, workgrp_y, 1);
+        std::mem::drop(compute_pass);
 
         // Copy to surface texture
         let texture = self.frame_texture.as_ref().unwrap();

@@ -57,8 +57,13 @@ fn hit_sphere(center:vec3<f32>, radius: f32, ro: vec3<f32>, rv: vec3<f32>) ->f32
 @compute @workgroup_size(8,8)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let width = dims.x;
-  let ray_id = global_id.y * width + global_id.x;
+  let height = dims.y;
 
+  if (global_id.x >= width || global_id.y >= height) {
+    return;
+  }
+
+  let ray_id = global_id.y * width + global_id.x;
 
   var closest_hit: f32 = -1.0;
   var closest_sphere = 0u;
@@ -86,11 +91,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
   }
 
-  if closest_hit > 0.0 {
-      let hit_point = o + dir * closest_hit;
-      let normal = normalize(hit_point - world_spheres[closest_sphere].position);
-      rec[ray_id].point = vec4<f32>(hit_point.xyz, closest_hit);
-      rec[ray_id].normal = normal;
-  }
+  let hit_point = o + dir * closest_hit;
+  let normal = normalize(hit_point - world_spheres[closest_sphere].position);
+  rec[ray_id].point = vec4<f32>(hit_point.xyz, closest_hit);
+  rec[ray_id].normal = normal;
   
 }

@@ -52,6 +52,10 @@ impl Renderer {
         self.compute_pipeline[1].as_ref()
     }
 
+    fn shade_pipeline(&self) -> Option<&wgpu::ComputePipeline> {
+        self.compute_pipeline[2].as_ref()
+    }
+
     pub fn window(&self) -> &Window {
         &self.window
     }
@@ -132,17 +136,17 @@ impl Renderer {
             device,
             queue,
             config,
-            size,
-            window,
             compute_pipeline: [None, None, None, None],
-            camera,
+            camera_uniform: None,
             dim_uniform: None,
             rays_buf: None,
             hit_buf: None,
-            camera_uniform: None,
             spheres_buf: None,
             frame_texture: None,
             frame_texview: None,
+            window,
+            camera,
+            size,
         }
     }
 
@@ -226,16 +230,12 @@ impl Renderer {
     }
 
     fn create_dim_uniform (&mut self)  {
-        let width = self.size.width as u64;
-        let height = self.size.height as u64;
-        let encoded = (width << 32) | height;
-        let dims = encoded.to_le_bytes();
 
         let uniform_buf =
             self.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Dimensions uniform"),
-                    contents: &dims,
+                    contents: bytemuck::cast_slice(&[self.size.width, self.size.height]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
         if let Some(uniform) = self.dim_uniform.as_ref() {
@@ -323,14 +323,16 @@ impl Renderer {
                         compilation_options: Default::default(),
                         cache: None,
                     });
+            // TODO: Do this with a setter
             self.compute_pipeline[0] = Some(compute_pipeline);
         }
 
+        let hit_rec_lay =
+            binding::buf_bind_group_lay(&self.device, Renderer::HIT_REC_BUF_BIND, false);
+
+        let dim_grp_lay = binding::uniform_bind_group_lay(&self.device, Renderer::DIM_UNIFORM_BIND);
+
         if self.intersect_pipeline().is_none() {
-            let hit_rec_lay =
-                binding::buf_bind_group_lay(&self.device, Renderer::HIT_REC_BUF_BIND, false);
-            let dim_grp_lay =
-                binding::uniform_bind_group_lay(&self.device, Renderer::DIM_UNIFORM_BIND);
             let sphere_grp_lay =
                 binding::buf_bind_group_lay(&self.device, Renderer::SPHERE_BUF_BIND, true);
 
@@ -360,6 +362,37 @@ impl Renderer {
                         cache: None,
                     });
             self.compute_pipeline[1] = Some(compute_pipeline);
+        }
+
+        if self.shade_pipeline().is_none() {
+            let frame_tex_lay = binding::img_texture_bind_group_lay(
+                &self.device,
+                self.config.format,
+                Renderer::IMG_TEX_BIND,
+            );
+
+            let compute_pipeline_layout =
+                self.device
+                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: None,
+                        bind_group_layouts: &[&hit_rec_lay, &dim_grp_lay, &frame_tex_lay],
+                        push_constant_ranges: &[],
+                    });
+
+            let shader_desc = include_wgsl!("../www/public/shaders/shade.wgsl");
+            let shader_mod = self.device.create_shader_module(shader_desc);
+            let compute_pipeline =
+                self.device
+                    .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                        label: Some("Shade pipeline"),
+                        layout: Some(&compute_pipeline_layout),
+                        module: &shader_mod,
+                        entry_point: Some("main"),
+                        compilation_options: Default::default(),
+                        cache: None,
+                    });
+            self.compute_pipeline[2] = Some(compute_pipeline);
+
         }
     }
 
@@ -497,6 +530,47 @@ impl Renderer {
             3,
             Renderer::DIM_UNIFORM_BIND,
         );
+
+        compute_pass.dispatch_workgroups(workgrp_x, workgrp_y, 1);
+        std::mem::drop(compute_pass);
+
+        // Shading pass ##################################
+
+        let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("Intersect pass"),
+            ..Default::default()
+        });
+        let compute_pipeline = self.shade_pipeline().unwrap();
+
+        compute_pass.set_pipeline(compute_pipeline);
+
+        self.set_buffer_binding(
+            &mut compute_pass,
+            compute_pipeline,
+            self.hit_buf.as_ref().unwrap().as_entire_binding(),
+            0,
+            Renderer::HIT_REC_BUF_BIND,
+        );
+
+        self.set_buffer_binding(
+            &mut compute_pass,
+            compute_pipeline,
+            self.dim_uniform.as_ref().unwrap().as_entire_binding(),
+            1,
+            Renderer::DIM_UNIFORM_BIND,
+        );
+
+        // Bind texture
+        {
+            let frame_tex_lay = compute_pipeline.get_bind_group_layout(2);
+            let frame_tex_grp = binding::img_texture_bind_group(
+                &self.device,
+                self.frame_texview.as_ref().unwrap(),
+                Renderer::IMG_TEX_BIND,
+                &frame_tex_lay,
+            );
+            compute_pass.set_bind_group(2, &frame_tex_grp, &[]);
+        }
 
         compute_pass.dispatch_workgroups(workgrp_x, workgrp_y, 1);
         std::mem::drop(compute_pass);

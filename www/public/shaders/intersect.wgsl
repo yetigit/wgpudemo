@@ -28,12 +28,14 @@ struct HitRecord {
 }
 
 @group(0) @binding(2) 
-var<storage> rays: array<Ray>;
-@group(2) @binding(3) 
-var<storage> world_spheres: array<Sphere>;
+var<storage, read_write> rays: array<Ray>;
 
 @group(1) @binding(4) 
 var<storage, read_write> rec: array<HitRecord>;
+
+@group(2) @binding(3) 
+var<storage> world_spheres: array<Sphere>;
+
 
 @group(3) @binding(5) 
 var<uniform> dims: vec2<u32>;
@@ -54,13 +56,14 @@ fn hit_sphere(center:vec3<f32>, radius: f32, ro: vec3<f32>, rv: vec3<f32>) ->f32
 
 @compute @workgroup_size(8,8)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+  let width = dims.x;
   let ray_id = global_id.y * width + global_id.x;
 
 
-  let closest_hit: f32 = -1.0;
-  let closest_sphere: u32 = i;
+  var closest_hit: f32 = -1.0;
+  var closest_sphere = 0u;
   let dir = rays[ray_id].dir;
-  let o = rays[ray_id].o
+  let o = rays[ray_id].o;
 
   for (var i = 0u; i < arrayLength(&world_spheres); i++) {
     let sphere_center = world_spheres[i].position;
@@ -82,7 +85,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     }
   }
-
 
   if closest_hit > 0.0 {
       let hit_point = o + dir * closest_hit;

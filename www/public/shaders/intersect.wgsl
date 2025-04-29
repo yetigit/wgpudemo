@@ -49,9 +49,9 @@ fn hit_sphere(center:vec3<f32>, radius: f32, ro: vec3<f32>, rv: vec3<f32>) ->f32
 
     if discriminant < 0.0 {
         return -1.0;
-    } else {
-        return (h - sqrt(discriminant)) / a;
     }
+
+    return (h - sqrt(discriminant)) / a;
 }
 
 @compute @workgroup_size(8,8)
@@ -77,18 +77,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Cast ray
     let s = hit_sphere(sphere_center, sphere_radius, o, dir);
 
-    if s > 0.0 {
+    let is_valid_hit = s > 0.0 && (closest_hit < 0.0 || s < closest_hit);
 
-      if closest_hit < 0.0 {
-        closest_hit = s;
-        closest_sphere = i;
-      }
-      if s < closest_hit {
-        closest_hit = s;
-        closest_sphere = i;
-      }
-
-    }
+    closest_hit = select(closest_hit, s, is_valid_hit);
+    closest_sphere = select(closest_sphere, i, is_valid_hit);
   }
 
   let hit_point = o + dir * closest_hit;

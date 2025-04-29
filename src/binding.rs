@@ -1,8 +1,7 @@
-pub fn camera_bind_group_lay(device: &wgpu::Device, binding: u32) -> wgpu::BindGroupLayout {
+pub fn uniform_bind_group_lay(device: &wgpu::Device, binding: u32) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
         entries: &[
-            // camera
             wgpu::BindGroupLayoutEntry {
                 binding,
                 visibility: wgpu::ShaderStages::COMPUTE,
@@ -17,52 +16,32 @@ pub fn camera_bind_group_lay(device: &wgpu::Device, binding: u32) -> wgpu::BindG
     })
 }
 
-pub fn camera_bind_group<'a>(device : &wgpu::Device, 
-    resource: wgpu::BindingResource<'a>, 
-    binding: u32, 
-    layout: &wgpu::BindGroupLayout) -> wgpu::BindGroup {
-    device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("Main bind group"),
-        // Get it from our compute pipeline
-        layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-            binding,
-            resource,
-        }],
-    })
-}
 
-
-pub fn rays_bind_group_lay(
+pub fn buf_bind_group_lay(
     device: &wgpu::Device,
     binding: u32, read_only: bool
 ) -> wgpu::BindGroupLayout {
-
-    device
-    .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only },
+                has_dynamic_offset: false,
+                min_binding_size: None,
             },
-        ],
+            count: None,
+        }],
     })
 }
 
-pub fn rays_bind_group<'a>(device : &wgpu::Device, 
+pub fn bind_group_from<'a>(device : &wgpu::Device, 
     resource: wgpu::BindingResource<'a>, 
     binding: u32, 
     layout: &wgpu::BindGroupLayout) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("Main bind group"),
+        label: None,
         // Get it from our compute pipeline
         layout,
         entries: &[
@@ -72,8 +51,6 @@ pub fn rays_bind_group<'a>(device : &wgpu::Device,
         }],
     })
 }
-
-
 
 pub fn img_texture_bind_group_lay(
     device: &wgpu::Device,

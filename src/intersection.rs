@@ -10,10 +10,10 @@ pub struct Ray {
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct HitRecord {
-    point: [f32; 3],
-    _pad0: u32,
     // Vec4 containing vec3 as normal and an extra float as the t value
-    normal: [f32; 4],
+    point: [f32; 4],
+    normal: [f32; 3],
+    _pad0: u32,
 }
 
 const _: () = assert!(std::mem::size_of::<HitRecord>() % 16 == 0);

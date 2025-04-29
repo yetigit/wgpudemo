@@ -8,12 +8,12 @@ use crate::camera::Camera;
 use crate::sphere::Sphere;
 
 use crate::intersection::{ Ray, HitRecord };
+use crate::binding;
 
 pub struct Renderer {
     // Wgpu objects
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
-    render_pipeline: wgpu::RenderPipeline,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     compute_pipeline: Option<wgpu::ComputePipeline>,
@@ -37,11 +37,13 @@ pub struct Renderer {
 impl Renderer {
     const CAMERA_UNIFORM_BIND:u32 = 0;
     const IMG_TEXTURE_BIND:u32 = 1;
-    const SPHERE_BUF_BIND: u32 = 2;
+    const RAYS_BUF_BIND: u32 = 2;
+    const SPHERE_BUF_BIND: u32 = 3;
     pub fn window(&self) -> &Window {
         &self.window
     }
 
+    #[allow(dead_code)]
     async fn fetch_shader(shader_path: &str) -> Result<String, JsValue> {
         use wasm_bindgen_futures::JsFuture;
         use web_sys::{Request, RequestInit, RequestMode, Response};
@@ -59,6 +61,7 @@ impl Renderer {
         let text = JsFuture::from(resp.text()?).await?;
         Ok(text.as_string().unwrap())
     }
+
     pub async fn new(window: Window, color_fmt: wgpu::TextureFormat) -> Self {
         let window = Arc::new(window);
         let size = window.inner_size();
@@ -110,71 +113,10 @@ impl Renderer {
             view_formats: vec![],
         };
 
-        let shader_code = Renderer::fetch_shader("public/shaders/simple.wgsl").await.unwrap();
-
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(shader_code.into()),
-        });
-
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[],
-                push_constant_ranges: &[],
-            });
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent::REPLACE,
-                        alpha: wgpu::BlendComponent::REPLACE,
-                    }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                // Setting this to anything other than Fill requires Features::POLYGON_MODE_LINE
-                // or Features::POLYGON_MODE_POINT
-                polygon_mode: wgpu::PolygonMode::Fill,
-                // Requires Features::DEPTH_CLIP_CONTROL
-                unclipped_depth: false,
-                // Requires Features::CONSERVATIVE_RASTERIZATION
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
-        });
-
-        // surface.configure(&device, &config);
-
         let camera = Camera::new();
         Self {
             surface,
             device,
-            render_pipeline,
             queue,
             config,
             size,
@@ -300,86 +242,23 @@ impl Renderer {
         self.spheres_buf = Some(buf);
     }
 
-    fn create_rt_bindgrp(&self, layout: &wgpu::BindGroupLayout) -> wgpu::BindGroup {
-        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Main bind group"),
-            // Get it from our compute pipeline
-            layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: Renderer::CAMERA_UNIFORM_BIND,
-                    resource: self
-                        .camera_uniform
-                        .as_ref()
-                        .unwrap()
-                        .as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: Renderer::IMG_TEXTURE_BIND,
-                    resource: wgpu::BindingResource::TextureView(
-                        self.frame_texview.as_ref().unwrap(),
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: Renderer::SPHERE_BUF_BIND,
-                    resource: self.spheres_buf.as_ref().unwrap().as_entire_binding(),
-                },
-            ],
-        })
-    }
 
     fn create_rt_pipeline(&mut self) {
         if self.compute_pipeline.is_none() {
-            let layout = self
-                .device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: None,
-                    entries: &[
-                        // camera
-                        wgpu::BindGroupLayoutEntry {
-                            binding: Renderer::CAMERA_UNIFORM_BIND,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        // img storage buffer
-                        wgpu::BindGroupLayoutEntry {
-                            binding: Renderer::IMG_TEXTURE_BIND,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::StorageTexture {
-                                access: wgpu::StorageTextureAccess::WriteOnly,
-                                format: self.config.format,
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: Renderer::SPHERE_BUF_BIND,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                    ],
-                });
+            let camera_grp_lay =
+                binding::camera_bind_group_lay(&self.device, Renderer::CAMERA_UNIFORM_BIND);
+            let rays_grp_lay = binding::rays_bind_group_lay(&self.device, Renderer::RAYS_BUF_BIND, false);
 
             let compute_pipeline_layout =
                 self.device
                     .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                         label: None,
-                        bind_group_layouts: &[&layout],
+                        bind_group_layouts: &[&camera_grp_lay, &rays_grp_lay],
                         push_constant_ranges: &[],
                     });
 
             {
-                let shader_desc = include_wgsl!("../www/public/shaders/rt.comp.wgsl");
+                let shader_desc = include_wgsl!("../www/public/shaders/rays.wgsl");
                 let shader_mod = self.device.create_shader_module(shader_desc);
                 let compute_pipeline =
                     self.device
@@ -417,6 +296,7 @@ impl Renderer {
             self.camera.look_at = [0.0, 0.0, 500.0];
             self.create_img_texture();
             self.create_camera_uniform();
+            self.create_ray_buf();
             self.create_rt_pipeline();
             return true;
         }
@@ -426,9 +306,6 @@ impl Renderer {
     pub fn render (&mut self) -> Result<(), wgpu::SurfaceError>{
         // log::warn!("Render") ; 
         let output = self.surface.get_current_texture()?;
-        // let view = output
-        //     .texture
-        //     .create_view(&wgpu::TextureViewDescriptor::default());
 
         let mut encoder = self
             .device
@@ -438,20 +315,45 @@ impl Renderer {
 
         let width = self.size.width;
         let height = self.size.height;
+
+        let workgrp_x = width.div_ceil(8);
+        let workgrp_y = height.div_ceil(8);
+
+        // Rays pass #########################################
+        let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("Ray pass"),
+            ..Default::default()
+        });
+        let compute_pipeline = self.compute_pipeline.as_ref().unwrap();
+
+        compute_pass.set_pipeline(compute_pipeline);
+
         {
-            let workgrp_x = width.div_ceil(8);
-            let workgrp_y = height.div_ceil(8);
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Compute pass"),
-                ..Default::default()
-            });
-            let compute_pipeline = self.compute_pipeline.as_ref().unwrap();
-            let bind_grp_layout = compute_pipeline.get_bind_group_layout(0);
-            let bind_grp = self.create_rt_bindgrp(&bind_grp_layout);
-            compute_pass.set_pipeline(compute_pipeline);
-            compute_pass.set_bind_group(0, &bind_grp, &[]);
-            compute_pass.dispatch_workgroups(workgrp_x, workgrp_y, 1);
+            let camera_grp_lay = compute_pipeline.get_bind_group_layout(0);
+            let camera_grp = binding::camera_bind_group(
+                &self.device,
+                self.camera_uniform.as_ref().unwrap().as_entire_binding(),
+                Renderer::CAMERA_UNIFORM_BIND,
+                &camera_grp_lay,
+            );
+
+            let rays_grp_lay = compute_pipeline.get_bind_group_layout(1);
+            let rays_grp = binding::rays_bind_group(
+                &self.device,
+                self.rays_buf.as_ref().unwrap().as_entire_binding(),
+                Renderer::RAYS_BUF_BIND,
+                &rays_grp_lay,
+            );
+            compute_pass.set_bind_group(0, &camera_grp, &[]);
+            compute_pass.set_bind_group(1, &rays_grp, &[]);
         }
+
+        compute_pass.dispatch_workgroups(workgrp_x, workgrp_y, 1);
+        std::mem::drop(compute_pass);
+
+        // Intersection pass ##################################
+
+        // Copy to surface texture
         let texture = self.frame_texture.as_ref().unwrap();
         encoder.copy_texture_to_texture(
             wgpu::TexelCopyTextureInfo {

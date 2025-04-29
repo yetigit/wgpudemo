@@ -2,6 +2,7 @@ use wasm_bindgen::prelude::*;
 use std::{sync::Arc, rc::Rc, cell::RefCell};
 // use wgpu::{include_wgsl, util::DeviceExt};
 
+mod binding;
 mod renderer;
 mod camera;
 mod sphere;

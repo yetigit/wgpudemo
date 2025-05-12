@@ -224,6 +224,7 @@ impl Renderer {
         );
         if let Some(tex) = self.frame_texture.as_ref() {
             tex.destroy();
+            self.frame_texview = None;
         }
         self.frame_texview = Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         self.frame_texture = Some(texture);
@@ -253,8 +254,8 @@ impl Renderer {
                     contents: bytemuck::cast_slice(&[self.camera]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
-        if let Some(cam_uniform_buf) = self.camera_uniform.as_ref() {
-            cam_uniform_buf.destroy();
+        if let Some(uniform) = self.camera_uniform.as_ref() {
+            uniform.destroy();
         }
         self.camera_uniform= Some(camera_uniform_buffer);
     }

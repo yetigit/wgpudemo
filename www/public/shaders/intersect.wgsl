@@ -24,7 +24,7 @@ struct HitRecord {
   // Vec4 containing vec3 as normal and an extra float as the t value
   point: vec4<f32>,
   normal: vec3<f32>,
-  _pad0: u32,
+  flags: u32,
 }
 
 @group(0) @binding(2) 
@@ -40,18 +40,39 @@ var<storage> world_spheres: array<Sphere>;
 @group(3) @binding(5) 
 var<uniform> dims: vec2<u32>;
 
-fn hit_sphere(center:vec3<f32>, radius: f32, ro: vec3<f32>, rv: vec3<f32>) ->f32 {
-    let oc = center - ro;
-    let a = dot(rv, rv) ; 
-    let h = dot(rv, oc);
-    let c = dot(oc, oc ) - radius*radius;
-    let discriminant = h*h - a*c;
+fn hit_sphere(center:vec3<f32>, radius: f32, ro: vec3<f32>, rv: vec3<f32>, 
+  tmin: f32, tmax: f32) -> f32 {
 
-    if discriminant < 0.0 {
-        return -1.0;
+  let oc = center - ro;
+  let a = dot(rv, rv) ; 
+  let h = dot(rv, oc);
+  let c = dot(oc, oc) - radius*radius;
+  let discriminant = h*h - a*c;
+
+  if discriminant < 0.0 {
+      return -1.0;
+  }
+  let sqroot = sqrt(discriminant);
+
+  var root = (h - sqroot) / a;
+  if (root <= tmin || root >= tmax){
+    root = (h + sqroot) / a;
+    if (root <= tmin || root >= tmax){
+      return -1.0;
     }
+  }
+  return root;
+}
 
-    return (h - sqrt(discriminant)) / a;
+fn set_hit_orientation (ray: ptr<storage, vec3<f32>, read_write>,
+  irec : ptr<storage, HitRecord, read_write>) {
+
+  // Ray started from inside and hit the surface from the back
+  if dot(irec.normal, *ray) > 0.0 {
+    // NOTE: Make it point outward
+    irec.normal = -irec.normal;
+    irec.flags = irec.flags | 0x1;
+  }
 }
 
 @compute @workgroup_size(8,8)
@@ -75,7 +96,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let sphere_radius = world_spheres[i].radius;
 
     // Cast ray
-    let s = hit_sphere(sphere_center, sphere_radius, o, dir);
+    let s = hit_sphere(sphere_center, sphere_radius, o, dir, 0.001, 99999.0);
 
     let is_valid_hit = s > 0.0 && (closest_hit < 0.0 || s < closest_hit);
 
@@ -87,5 +108,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let normal = normalize(hit_point - world_spheres[closest_sphere].position);
   rec[ray_id].point = vec4<f32>(hit_point.xyz, closest_hit);
   rec[ray_id].normal = normal;
+  set_hit_orientation(&rays[ray_id].dir, &rec[ray_id]);
   
 }

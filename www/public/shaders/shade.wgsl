@@ -26,7 +26,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   }
   let idx = global_id.y * width + global_id.x;
 
-  var color = vec3<f32>(0.0, 0.0, 0.0);
+  var color = vec3<f32>(1.0, 1.0, 1.0);
 
   if rec[idx].point.w > 0.0 {
       // Hit Color

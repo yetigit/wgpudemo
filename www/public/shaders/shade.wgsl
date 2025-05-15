@@ -25,6 +25,17 @@ var outputTexture: texture_storage_2d<rgba8unorm, write>;
 @group(3) @binding(6) 
 var<storage> materials: array<Material>;
 
+@group(3) @binding(7) 
+var<uniform> u_seed: f32;
+
+// [0, 1] Random value
+fn rand(seed: ptr<function, f32>, pixel: vec2<f32>) -> f32
+{
+    let result: f32 = fract(sin(*seed / 100.0f * dot(pixel, vec2<f32>(12.9898f, 78.233f))) * 43758.5453f);
+    *seed = *seed + 1.0f;
+    return result;
+}
+
 @compute @workgroup_size(8,8)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
@@ -43,5 +54,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       color = materials[rec[idx].material_id].albedo;
   }
 
-  textureStore(outputTexture, vec2<i32>((global_id.xy)), color);
+  var seed = u_seed;
+  let pseed: ptr<function, f32> = &seed;
+  let t = rand(pseed, vec2<f32>(global_id.xy));
+
+  color.x += min(t, 1.0);
+
+  textureStore(outputTexture, vec2<i32>(global_id.xy), color);
 }

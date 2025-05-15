@@ -21,6 +21,7 @@ pub struct Renderer {
     // Buffers and textures
     // Ray pass
     camera_uniform: Option<wgpu::Buffer>,
+    seed_uniform: Option<wgpu::Buffer>,
     dim_uniform: Option<wgpu::Buffer>,
     rays_buf: Option<wgpu::Buffer>,
     // Intersection pass
@@ -47,6 +48,7 @@ impl Renderer {
     const HIT_REC_BUF_BIND: u32 = 4;
     const DIM_UNIFORM_BIND: u32 = 5;
     const MAT_BUF_BIND: u32 = 6;
+    const SEED_UNIFORM_BIND: u32 = 7;
 
     fn ray_pipeline(&self) -> Option<&wgpu::ComputePipeline> {
         self.compute_pipeline[0].as_ref()
@@ -142,6 +144,7 @@ impl Renderer {
             config,
             compute_pipeline: [None, None, None, None],
             camera_uniform: None,
+            seed_uniform: None,
             dim_uniform: None,
             rays_buf: None,
             hit_buf: None,
@@ -249,6 +252,21 @@ impl Renderer {
             uniform.destroy();
         }
         self.dim_uniform= Some(uniform_buf);
+    }
+
+    fn create_seed_uniform (&mut self)  {
+        let seed: f32 = 3.0;
+        let uniform_buf =
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Seed uniform"),
+                    contents: bytemuck::cast_slice(&[seed]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+        if let Some(uniform) = self.seed_uniform.as_ref() {
+            uniform.destroy();
+        }
+        self.seed_uniform= Some(uniform_buf);
     }
 
 
@@ -399,14 +417,26 @@ impl Renderer {
                 Renderer::IMG_TEX_BIND,
             );
 
-            let material_grp_lay =
-                binding::buf_bind_group_lay(&self.device, Renderer::MAT_BUF_BIND, true);
+            let material_grp_lay = binding::material_n_seed_group_lay(
+                &self.device,
+                Renderer::MAT_BUF_BIND,
+                Renderer::SEED_UNIFORM_BIND,
+                true,
+            );
+
+            // let seed_grp_lay  =
+            //     binding::uniform_bind_group_lay(&self.device, Renderer::SEED_UNIFORM_BIND);
 
             let compute_pipeline_layout =
                 self.device
                     .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                         label: None,
-                        bind_group_layouts: &[&hit_rec_lay, &dim_grp_lay, &frame_tex_lay, &material_grp_lay],
+                        bind_group_layouts: &[
+                            &hit_rec_lay,
+                            &dim_grp_lay,
+                            &frame_tex_lay,
+                            &material_grp_lay,
+                        ],
                         push_constant_ranges: &[],
                     });
 
@@ -449,6 +479,7 @@ impl Renderer {
 
             self.create_img_texture();
             self.create_camera_uniform();
+            self.create_seed_uniform();
             self.create_dim_uniform();
             self.create_ray_buf();
             self.create_rec_buf();
@@ -591,13 +622,18 @@ impl Renderer {
             Renderer::DIM_UNIFORM_BIND,
         );
 
-        self.set_buffer_binding(
-            &mut compute_pass,
-            compute_pipeline,
-            self.materials_buf.as_ref().unwrap().as_entire_binding(),
-            3,
-            Renderer::MAT_BUF_BIND,
-        );
+        // Bind materials and seed value
+        {
+            let material_seed_grp = binding::material_n_seed_bind_group(
+                &self.device,
+                self.materials_buf.as_ref().unwrap().as_entire_binding(),
+                self.seed_uniform.as_ref().unwrap().as_entire_binding(),
+                Renderer::MAT_BUF_BIND,
+                Renderer::SEED_UNIFORM_BIND,
+                &compute_pipeline.get_bind_group_layout(3),
+            );
+            compute_pass.set_bind_group(3, &material_seed_grp, &[]);
+        }
 
         // Bind texture
         {

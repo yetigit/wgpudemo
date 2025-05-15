@@ -338,6 +338,8 @@ impl Renderer {
             matbuf.destroy();
         }
         self.materials_buf = Some(buf);
+
+        self.create_seed_uniform();
     }
 
 
@@ -478,8 +480,9 @@ impl Renderer {
             self.camera.look_at = [0.0, 0.0, 500.0];
 
             self.create_img_texture();
+            // TODO: Camera uniform does not need to be recreated on resize
             self.create_camera_uniform();
-            self.create_seed_uniform();
+            // TODO: Seed dim does not need to be recreated on resize, just update
             self.create_dim_uniform();
             self.create_ray_buf();
             self.create_rec_buf();

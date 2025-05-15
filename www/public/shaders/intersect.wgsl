@@ -7,24 +7,21 @@ struct Ray {
 }
 struct Sphere {
    position: vec3<f32>,
-
-   _pad0: u32,
-   color: vec3<f32>,
-
-   _pad1: u32,
-
    radius: f32,
-
-   _pad2x: u32,
-   _pad2y: u32,
-   _pad2z: u32,
+   material_id: i32,
+   _pad0x: u32,
+   _pad0y: u32,
+   _pad0z: u32,
 }
 
 struct HitRecord {
-  // Vec4 containing vec3 as normal and an extra float as the t value
   point: vec4<f32>,
   normal: vec3<f32>,
   flags: u32,
+  material_id: i32,
+  _pad0x: u32,
+  _pad0y: u32,
+  _pad0z: u32,
 }
 
 @group(0) @binding(2) 
@@ -108,6 +105,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   let normal = normalize(hit_point - world_spheres[closest_sphere].position);
   rec[ray_id].point = vec4<f32>(hit_point.xyz, closest_hit);
   rec[ray_id].normal = normal;
+  rec[ray_id].material_id = world_spheres[closest_sphere].material_id;
   set_hit_orientation(&rays[ray_id].dir, &rec[ray_id]);
   
 }

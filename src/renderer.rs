@@ -5,7 +5,7 @@ use wgpu::{include_wgsl, util::DeviceExt};
 use winit::window::Window; 
 
 use crate::camera::Camera;
-use crate::sphere::Sphere;
+use crate::sphere::{Sphere, Material};
 
 use crate::intersection::{ Ray, HitRecord };
 use crate::binding;
@@ -23,13 +23,16 @@ pub struct Renderer {
     camera_uniform: Option<wgpu::Buffer>,
     dim_uniform: Option<wgpu::Buffer>,
     rays_buf: Option<wgpu::Buffer>,
-    hit_buf: Option<wgpu::Buffer>,
     // Intersection pass
+    hit_buf: Option<wgpu::Buffer>,
+    materials_buf: Option<wgpu::Buffer>,
     spheres_buf: Option<wgpu::Buffer>,
     // Final texture
     frame_texture: Option<wgpu::Texture>,
     frame_texview: Option<wgpu::TextureView>,
 
+    // Materials 
+    materials: Vec<Material>,
     // Misc
     pub window: Arc<Window>,
     camera: Camera,
@@ -43,6 +46,7 @@ impl Renderer {
     const SPHERE_BUF_BIND: u32 = 3;
     const HIT_REC_BUF_BIND: u32 = 4;
     const DIM_UNIFORM_BIND: u32 = 5;
+    const MAT_BUF_BIND: u32 = 6;
 
     fn ray_pipeline(&self) -> Option<&wgpu::ComputePipeline> {
         self.compute_pipeline[0].as_ref()
@@ -141,9 +145,11 @@ impl Renderer {
             dim_uniform: None,
             rays_buf: None,
             hit_buf: None,
+            materials_buf: None,
             spheres_buf: None,
             frame_texture: None,
             frame_texview: None,
+            materials: Vec::new(),
             window,
             camera,
             size,
@@ -261,16 +267,23 @@ impl Renderer {
     }
 
     pub fn make_world(&mut self) {
+        let red_cap = Material {albedo: [1.0, 0.0, 0.0, 1.0]};
+        let green_cap = Material {albedo: [0.0, 1.0, 0.0, 1.0]};
+        let blue_cap = Material {albedo: [0.0, 0.0, 1.0, 1.0]};
+        self.materials.push(red_cap);
+        self.materials.push(green_cap);
+        self.materials.push(blue_cap);
+
         #[rustfmt::skip]
         let top_sphere = Sphere::new(
              [0.0, 0.0, 500.0],
-             [1.0, 0.0, 0.0],
+             0,
              50.0,
         );
         #[rustfmt::skip]
         let bottom_sphere  =  Sphere::new(
              [0.0, -1050.0, 500.0],
-             [0.0, 0.0, 1.0],
+             1,
              1000.0,
         );
 
@@ -279,7 +292,7 @@ impl Renderer {
         spheres.push (
           Sphere::new(
              [-80.0, 0.0, 300.0],
-             [0.0, 1.0, 0.0],
+             2,
              50.0)
         ); 
 
@@ -294,6 +307,19 @@ impl Renderer {
             sphere_buf.destroy();
         }
         self.spheres_buf = Some(buf);
+
+        // Make material buffer
+        let buf = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Materials"),
+                contents: bytemuck::cast_slice(self.materials.as_slice()),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+        if let Some(matbuf) = self.materials_buf.as_ref() {
+            matbuf.destroy();
+        }
+        self.materials_buf = Some(buf);
     }
 
 
@@ -332,6 +358,7 @@ impl Renderer {
             binding::buf_bind_group_lay(&self.device, Renderer::HIT_REC_BUF_BIND, false);
 
         let dim_grp_lay = binding::uniform_bind_group_lay(&self.device, Renderer::DIM_UNIFORM_BIND);
+
 
         if self.intersect_pipeline().is_none() {
             let sphere_grp_lay =
@@ -372,11 +399,14 @@ impl Renderer {
                 Renderer::IMG_TEX_BIND,
             );
 
+            let material_grp_lay =
+                binding::buf_bind_group_lay(&self.device, Renderer::MAT_BUF_BIND, true);
+
             let compute_pipeline_layout =
                 self.device
                     .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                         label: None,
-                        bind_group_layouts: &[&hit_rec_lay, &dim_grp_lay, &frame_tex_lay],
+                        bind_group_layouts: &[&hit_rec_lay, &dim_grp_lay, &frame_tex_lay, &material_grp_lay],
                         push_constant_ranges: &[],
                     });
 
@@ -559,6 +589,14 @@ impl Renderer {
             self.dim_uniform.as_ref().unwrap().as_entire_binding(),
             1,
             Renderer::DIM_UNIFORM_BIND,
+        );
+
+        self.set_buffer_binding(
+            &mut compute_pass,
+            compute_pipeline,
+            self.materials_buf.as_ref().unwrap().as_entire_binding(),
+            3,
+            Renderer::MAT_BUF_BIND,
         );
 
         // Bind texture

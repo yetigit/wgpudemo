@@ -2,7 +2,6 @@ use nalgebra::Vector3;
 
 type Vector3f = Vector3<f32>;
 
-// TODO: Need a barebone version of this to send to the GPU 
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Camera {
@@ -50,7 +49,22 @@ pub struct Camera {
     _pad6: [u32; 3],
 }
 
+
+#[repr(C, packed)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct CameraLean  {
+    pixeloo : [f32; 3],
+    _pad0: u32,
+    pixel_delta_u : [f32; 3],
+    _pad1: u32,
+    pixel_delta_v : [f32; 3],
+    _pad2: u32,
+    camera_pos : [f32; 3],
+    _pad3: u32,
+}
+
 const _: () = assert!(std::mem::size_of::<Camera>() % 16 == 0);
+const _: () = assert!(std::mem::size_of::<CameraLean>() % 16 == 0);
 // const _: () = assert!(std::mem::align_of::<Camera>() == 16);
 
 impl Default for Camera {
@@ -112,6 +126,7 @@ impl Camera {
         Self::default()
     }
 
+    #[allow(dead_code)]
     pub fn set_aperture(&mut self, aperture: f32) {
         self.aperture = aperture;
         self.update_camera_config();
@@ -126,6 +141,44 @@ impl Camera {
             self.focal_length = self.sensor_height / d;
         }
         self.update_camera_config();
+    }
+
+    #[allow(dead_code)]
+    pub fn compute_sensor(&self) -> CameraLean {
+        let lookat = Vector3f::from(self.look_at);
+        let camera_pos = Vector3f::from(self.position);
+        let up_v = Vector3f::from(self.up_vector);
+
+        let forward = (lookat - camera_pos).normalize();
+        let right = up_v.cross(&forward).normalize();
+        let up = forward.cross(&right);
+
+        //
+        let sensor_height = self.sensor_height;
+        let sensor_width = sensor_height * self.aspect_ratio;
+
+        let pic_width = self.picture_width;
+        let pic_height = (pic_width as f32 / self.aspect_ratio) as u32;
+
+        let sensor_u = right * -sensor_width;
+        let sensor_v = up * -sensor_height;
+        let pixel_delta_u = sensor_u / pic_width as f32;
+        let pixel_delta_v = sensor_v / pic_height as f32;
+        let sensor_corner =
+            camera_pos + forward * self.focal_length - ((sensor_u + sensor_v) * 0.5);
+
+        let pixeloo = sensor_corner + ((pixel_delta_u + pixel_delta_v) * 0.5);
+
+        CameraLean {
+            pixeloo: pixeloo.into(),
+            _pad0: 0,
+            pixel_delta_u: pixel_delta_u.into(),
+            _pad1: 0,
+            pixel_delta_v: pixel_delta_u.into(),
+            _pad2: 0,
+            camera_pos: camera_pos.into(),
+            _pad3: 0,
+        }
     }
 
     pub fn set_focal_length(&mut self, focal_length: f32) {

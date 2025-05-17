@@ -34,6 +34,66 @@ pub fn buf_bind_group_lay(
     })
 }
 
+pub fn sphere_n_dim_group_lay(
+    device: &wgpu::Device,
+    sphere_bind: u32,
+    dim_bind: u32,
+    read_only: bool,
+) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("Shade stage spheres"),
+        // Sphere buffer
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: sphere_bind,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            // Dim uniform
+            wgpu::BindGroupLayoutEntry {
+                binding: dim_bind,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    })
+}
+
+pub fn sphere_n_dim_bind_group<'a, 'b>(
+    device: &wgpu::Device,
+    sphere_rs: wgpu::BindingResource<'a>,
+    dim_rs: wgpu::BindingResource<'b>,
+    sphere_bind: u32,
+    dim_bind: u32,
+    layout: &wgpu::BindGroupLayout,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        // Get it from our compute pipeline
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: sphere_bind,
+                resource: sphere_rs,
+            },
+            wgpu::BindGroupEntry {
+                binding: dim_bind,
+                resource: dim_rs,
+            },
+        ],
+    })
+}
+
 pub fn material_n_seed_group_lay(
     device: &wgpu::Device,
     material_bind: u32,

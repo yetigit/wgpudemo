@@ -285,9 +285,9 @@ impl Renderer {
     }
 
     pub fn make_world(&mut self) {
-        let red_cap = Material {albedo: [1.0, 0.0, 0.0, 1.0]};
-        let green_cap = Material {albedo: [0.0, 1.0, 0.0, 1.0]};
-        let blue_cap = Material {albedo: [0.0, 0.0, 1.0, 1.0]};
+        let red_cap = Material {albedo: [0.1, 0.2, 0.5, 1.0]};
+        let green_cap = Material {albedo: [0.8, 0.8, 0.0, 1.0]};
+        let blue_cap = Material {albedo: [0.5, 0.2, 0.1, 1.0]};
         self.materials.push(red_cap);
         self.materials.push(green_cap);
         self.materials.push(blue_cap);
@@ -309,7 +309,7 @@ impl Renderer {
         #[rustfmt::skip]
         spheres.push (
           Sphere::new(
-             [-80.0, 0.0, 300.0],
+             [-80.0, -20.0, 300.0],
              2,
              50.0)
         ); 
@@ -426,8 +426,13 @@ impl Renderer {
                 true,
             );
 
-            // let seed_grp_lay  =
-            //     binding::uniform_bind_group_lay(&self.device, Renderer::SEED_UNIFORM_BIND);
+            let sphere_dim_grp_lay = binding::sphere_n_dim_group_lay(
+                &self.device,
+                Renderer::SPHERE_BUF_BIND,
+                Renderer::DIM_UNIFORM_BIND,
+                true,
+            );
+
 
             let compute_pipeline_layout =
                 self.device
@@ -435,7 +440,7 @@ impl Renderer {
                         label: None,
                         bind_group_layouts: &[
                             &hit_rec_lay,
-                            &dim_grp_lay,
+                            &sphere_dim_grp_lay,
                             &frame_tex_lay,
                             &material_grp_lay,
                         ],
@@ -602,7 +607,7 @@ impl Renderer {
         // Shading pass ##################################
 
         let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("Intersect pass"),
+            label: Some("Shading pass"),
             ..Default::default()
         });
         let compute_pipeline = self.shade_pipeline().unwrap();
@@ -617,17 +622,23 @@ impl Renderer {
             Renderer::HIT_REC_BUF_BIND,
         );
 
-        self.set_buffer_binding(
-            &mut compute_pass,
-            compute_pipeline,
-            self.dim_uniform.as_ref().unwrap().as_entire_binding(),
-            1,
-            Renderer::DIM_UNIFORM_BIND,
-        );
+        // Bind spheres and dim
+        {
+            let grp = binding::sphere_n_dim_bind_group(
+                &self.device,
+                self.spheres_buf.as_ref().unwrap().as_entire_binding(),
+                self.dim_uniform.as_ref().unwrap().as_entire_binding(),
+                Renderer::SPHERE_BUF_BIND,
+                Renderer::DIM_UNIFORM_BIND,
+                &compute_pipeline.get_bind_group_layout(1),
+            );
+            compute_pass.set_bind_group(1, &grp, &[]);
+        }
+
 
         // Bind materials and seed value
         {
-            let material_seed_grp = binding::material_n_seed_bind_group(
+            let grp = binding::material_n_seed_bind_group(
                 &self.device,
                 self.materials_buf.as_ref().unwrap().as_entire_binding(),
                 self.seed_uniform.as_ref().unwrap().as_entire_binding(),
@@ -635,7 +646,7 @@ impl Renderer {
                 Renderer::SEED_UNIFORM_BIND,
                 &compute_pipeline.get_bind_group_layout(3),
             );
-            compute_pass.set_bind_group(3, &material_seed_grp, &[]);
+            compute_pass.set_bind_group(3, &grp, &[]);
         }
 
         // Bind texture

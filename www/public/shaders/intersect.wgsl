@@ -65,7 +65,7 @@ fn set_hit_orientation (ray: ptr<storage, vec3<f32>, read_write>,
   irec : ptr<storage, HitRecord, read_write>) {
 
   // Ray started from inside and hit the surface from the back
-  if dot(irec.normal, *ray) > 0.0 {
+  if dot(irec.normal, normalize(*ray)) > 0.0 {
     // NOTE: Make it point outward
     irec.normal = -irec.normal;
     irec.flags = irec.flags | 0x1;

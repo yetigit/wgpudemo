@@ -52,14 +52,14 @@ pub struct Camera {
 
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct CameraLean  {
-    pixeloo : [f32; 3],
+pub struct CameraLean {
+    pixeloo: [f32; 3],
     _pad0: u32,
-    pixel_delta_u : [f32; 3],
+    pixel_delta_u: [f32; 3],
     _pad1: u32,
-    pixel_delta_v : [f32; 3],
+    pixel_delta_v: [f32; 3],
     _pad2: u32,
-    camera_pos : [f32; 3],
+    pos: [f32; 3],
     _pad3: u32,
 }
 
@@ -146,10 +146,10 @@ impl Camera {
     #[allow(dead_code)]
     pub fn compute_sensor(&self) -> CameraLean {
         let lookat = Vector3f::from(self.look_at);
-        let camera_pos = Vector3f::from(self.position);
+        let pos = Vector3f::from(self.position);
         let up_v = Vector3f::from(self.up_vector);
 
-        let forward = (lookat - camera_pos).normalize();
+        let forward = (lookat - pos).normalize();
         let right = up_v.cross(&forward).normalize();
         let up = forward.cross(&right);
 
@@ -165,7 +165,7 @@ impl Camera {
         let pixel_delta_u = sensor_u / pic_width as f32;
         let pixel_delta_v = sensor_v / pic_height as f32;
         let sensor_corner =
-            camera_pos + forward * self.focal_length - ((sensor_u + sensor_v) * 0.5);
+            pos + forward * self.focal_length - ((sensor_u + sensor_v) * 0.5);
 
         let pixeloo = sensor_corner + ((pixel_delta_u + pixel_delta_v) * 0.5);
 
@@ -174,9 +174,9 @@ impl Camera {
             _pad0: 0,
             pixel_delta_u: pixel_delta_u.into(),
             _pad1: 0,
-            pixel_delta_v: pixel_delta_u.into(),
+            pixel_delta_v: pixel_delta_v.into(),
             _pad2: 0,
-            camera_pos: camera_pos.into(),
+            pos: pos.into(),
             _pad3: 0,
         }
     }

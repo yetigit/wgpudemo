@@ -4,7 +4,7 @@ use wgpu::{include_wgsl, util::DeviceExt};
 
 use winit::window::Window; 
 
-use crate::camera::Camera;
+use crate::camera::{Camera, CameraLean};
 use crate::sphere::{Sphere, Material};
 
 use crate::intersection::{ Ray, HitRecord };
@@ -292,11 +292,12 @@ impl Renderer {
 
 
     fn create_camera_uniform(&mut self) {
+        let camera_lean: CameraLean = self.camera.compute_sensor();
         let camera_uniform_buffer =
             self.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Camera uniform"),
-                    contents: bytemuck::cast_slice(&[self.camera]),
+                    contents: bytemuck::cast_slice(&[camera_lean]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
         if let Some(uniform) = self.camera_uniform.as_ref() {
@@ -367,6 +368,8 @@ impl Renderer {
     fn create_pipelines(&mut self) {
         let rays_grp_lay = binding::buf_bind_group_lay(&self.device, Renderer::RAYS_BUF_BIND, false);
 
+        let dim_grp_lay = binding::uniform_bind_group_lay(&self.device, Renderer::DIM_UNIFORM_BIND);
+
         if self.ray_pipeline().is_none() {
             let camera_grp_lay =
                 binding::uniform_bind_group_lay(&self.device, Renderer::CAMERA_UNIFORM_BIND);
@@ -375,7 +378,7 @@ impl Renderer {
                 self.device
                     .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                         label: None,
-                        bind_group_layouts: &[&camera_grp_lay, &rays_grp_lay],
+                        bind_group_layouts: &[&camera_grp_lay, &rays_grp_lay, &dim_grp_lay],
                         push_constant_ranges: &[],
                     });
 
@@ -397,7 +400,6 @@ impl Renderer {
         let hit_rec_lay =
             binding::buf_bind_group_lay(&self.device, Renderer::HIT_REC_BUF_BIND, false);
 
-        let dim_grp_lay = binding::uniform_bind_group_lay(&self.device, Renderer::DIM_UNIFORM_BIND);
 
 
         if self.intersect_pipeline().is_none() {
@@ -574,6 +576,14 @@ impl Renderer {
             self.rays_buf.as_ref().unwrap().as_entire_binding(),
             1,
             Renderer::RAYS_BUF_BIND,
+        );
+
+        self.set_buffer_binding(
+            &mut compute_pass,
+            compute_pipeline,
+            self.dim_uniform.as_ref().unwrap().as_entire_binding(),
+            2,
+            Renderer::DIM_UNIFORM_BIND,
         );
 
         compute_pass.dispatch_workgroups(workgrp_x, workgrp_y, 1);

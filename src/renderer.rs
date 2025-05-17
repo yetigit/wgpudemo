@@ -62,6 +62,27 @@ impl Renderer {
         self.compute_pipeline[2].as_ref()
     }
 
+    fn set_ray_pipeline(
+        &mut self,
+        pipeline: wgpu::ComputePipeline,
+    ) -> Option<wgpu::ComputePipeline> {
+        self.compute_pipeline[0].replace(pipeline)
+    }
+
+    fn set_intersect_pipeline(
+        &mut self,
+        pipeline: wgpu::ComputePipeline,
+    ) -> Option<wgpu::ComputePipeline> {
+        self.compute_pipeline[1].replace(pipeline)
+    }
+
+    fn set_shade_pipeline(
+        &mut self,
+        pipeline: wgpu::ComputePipeline,
+    ) -> Option<wgpu::ComputePipeline> {
+        self.compute_pipeline[2].replace(pipeline)
+    }
+
     pub fn window(&self) -> &Window {
         &self.window
     }
@@ -370,8 +391,7 @@ impl Renderer {
                         compilation_options: Default::default(),
                         cache: None,
                     });
-            // TODO: Do this with a setter
-            self.compute_pipeline[0] = Some(compute_pipeline);
+            let _ = self.set_ray_pipeline(compute_pipeline);
         }
 
         let hit_rec_lay =
@@ -409,7 +429,7 @@ impl Renderer {
                         compilation_options: Default::default(),
                         cache: None,
                     });
-            self.compute_pipeline[1] = Some(compute_pipeline);
+            let _ = self.set_intersect_pipeline(compute_pipeline);
         }
 
         if self.shade_pipeline().is_none() {
@@ -459,7 +479,7 @@ impl Renderer {
                         compilation_options: Default::default(),
                         cache: None,
                     });
-            self.compute_pipeline[2] = Some(compute_pipeline);
+            let _ = self.set_shade_pipeline(compute_pipeline);
 
         }
     }
@@ -485,9 +505,9 @@ impl Renderer {
             self.camera.look_at = [0.0, 0.0, 500.0];
 
             self.create_img_texture();
-            // TODO: Camera uniform does not need to be recreated on resize
+            // NOTE: We could create the buffers, than update the resolution of the camera and dim
+            // uniform
             self.create_camera_uniform();
-            // TODO: Seed dim does not need to be recreated on resize, just update
             self.create_dim_uniform();
             self.create_ray_buf();
             self.create_rec_buf();

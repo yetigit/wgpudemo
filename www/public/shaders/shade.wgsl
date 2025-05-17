@@ -170,6 +170,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   var color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
 
+  // TODO: Expose as uniform
   let max_bounce = 64; 
   var seed = u_seed;
   let pseed: ptr<function, f32> = &seed;

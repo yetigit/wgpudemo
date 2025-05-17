@@ -10,9 +10,6 @@ mod intersection;
 
 use crate::renderer::Renderer; 
 
-// TODO:
-// -Seperate MyState in a mod
-
 use winit::{
     application::ApplicationHandler,
     event::*,

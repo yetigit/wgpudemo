@@ -7,7 +7,7 @@ pub struct Ray {
     _pad1: u32,
 }
 
-// TODO: Too much data per pixel
+// TODO: Too much data per pixel, must use SoA
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct HitRecord {

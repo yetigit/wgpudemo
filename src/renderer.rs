@@ -129,12 +129,17 @@ impl Renderer {
             .unwrap();
 
         let required_features = wgpu::Features::from_bits_truncate(wgpu::Features::empty().bits());
+        
+        // NOTE: Done temporarily for unoptimize memory footprint of Hit record
+        let mut required_limits = wgpu::Limits::default();
+        required_limits.max_storage_buffer_binding_size = 2147483644;
 
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
                     required_features,
+                    required_limits,
                     ..Default::default()
                 },
                 None,

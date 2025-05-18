@@ -155,6 +155,23 @@ fn hit_any(ray: ptr<function, Ray>, new_rec : ptr<function, HitRecord>) -> bool 
   return true;
 }
 
+fn linear_to_srgb(linear: f32) -> f32{
+    if (linear <= 0.0031308f){
+        return linear * 12.92f;
+    }
+    else {
+        return 1.055f * pow(linear, 1.0f / 2.4f) - 0.055f;
+    }
+}
+
+fn to_srgb (color: vec4<f32>) -> vec4<f32> {
+  return vec4<f32> (
+  linear_to_srgb(color.x),
+  linear_to_srgb(color.y),
+  linear_to_srgb(color.z), 
+  color.w);
+}
+
 
 @compute @workgroup_size(8,8)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -170,8 +187,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   var color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
 
-  // TODO: Expose as uniform
+  // How much ping-pong ===========
   let max_bounce = 64; 
+  // ========
+
   var seed = u_seed;
   let pseed: ptr<function, f32> = &seed;
 
@@ -203,7 +222,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       if (hit_any(ray_ptr, bounce_rec_ptr)){
         attenuation *= materials[bounce_rec.material_id].albedo.xyz;
       }else {
-        attenuation *= vec3<f32>(1.0, 1.0, 1.0);
+        attenuation *= vec3<f32>(0.7, 0.7, 0.7);
         b_loop = false;
       }
       depth += 1;
@@ -212,5 +231,5 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     color = vec4<f32>(attenuation, 1.0);
 
   }
-  textureStore(outputTexture, vec2<i32>(global_id.xy), color);
+  textureStore(outputTexture, vec2<i32>(global_id.xy), to_srgb(color));
 }

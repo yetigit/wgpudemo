@@ -20,9 +20,9 @@ struct Sphere {
 struct Material {
  albedo: vec4<f32>,
  kind: u32,
+ fuzz: f32,
  _pad0x : u32,
  _pad0y : u32,
- _pad0z : u32,
 }
 
 struct Ray {
@@ -98,7 +98,7 @@ fn random_in_hemisphere(normal: vec3<f32>, seed: ptr<function, f32>, pixel: vec2
 }
 
 fn reflect(dir: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
-   return dir - (2.0 * dot(dir, normal) * normal);
+   return dir - (2.0 * (dot(dir, normal) * normal));
 }
 
 fn hit_sphere(center:vec3<f32>, radius: f32, ro: vec3<f32>, rv: vec3<f32>, 
@@ -187,26 +187,35 @@ fn to_srgb (color: vec4<f32>) -> vec4<f32> {
 }
 
 fn scatter_lambert(hit_info: ptr<function, HitRecord>, 
-  seed: ptr<function, f32>, pixel: vec2<f32>) -> Ray {
+  seed: ptr<function, f32>, 
+  pixel: vec2<f32>,
+  ray :ptr<function, Ray>) -> bool {
+
   let rand_vec = random_in_hemisphere(hit_info.normal, seed, pixel);
   var dir = normalize(rand_vec + hit_info.normal);
   if is_near_zero(dir) {
     dir = hit_info.normal;
   }
 
-  var ray: Ray;
   ray.dir = dir;
   ray.o = hit_info.point.xyz;
-  return ray;
+  return true;
 }
 
-fn scatter_metal(vec: vec3<f32>, hit_info: ptr<function, HitRecord>) -> Ray {
-  let dir = reflect(vec, hit_info.normal);
+fn scatter_metal(vec: vec3<f32>, 
+  fuzz: f32, 
+  hit_info: ptr<function, HitRecord>,
+  seed: ptr<function, f32>, 
+  pixel: vec2<f32>,
+  ray: ptr<function, Ray>) -> bool {
+  var dir = reflect(vec, hit_info.normal);
+  dir = normalize(normalize(dir) + fuzz * random_in_hemisphere(hit_info.normal, seed, pixel));
 
-  var ray: Ray;
   ray.dir = dir;
   ray.o = hit_info.point.xyz;
-  return ray;
+  // NOTE: In theory never false since I use random in hemisphere
+  let ret = dot(dir, hit_info.normal) > 0.0;
+  return ret;
 }
 
 
@@ -242,14 +251,23 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     bounce_rec = rec[idx];
 
     while (depth < max_bounce && b_loop) {
+
       let material_kind = materials[bounce_rec.material_id].kind;
+      let fuzz_value = materials[bounce_rec.material_id].fuzz;
+
       var ray: Ray;
-      if (material_kind == 0){
-        ray = scatter_lambert(bounce_rec_ptr, pseed, pixel);
-      } else if (material_kind == 1) {
-        ray = scatter_metal(rays[idx].dir, bounce_rec_ptr);
-      }
       let ray_ptr: ptr<function, Ray> = &ray;
+      var bounces = false;
+
+      if (material_kind == 0){
+        bounces = scatter_lambert(bounce_rec_ptr, pseed, pixel, ray_ptr);
+      } else if (material_kind == 1) {
+        bounces = scatter_metal(rays[idx].dir, fuzz_value, bounce_rec_ptr, pseed, pixel, ray_ptr);
+        if (bounces == false) {
+          b_loop = false;
+          break;
+        }
+      }
 
       // Reset to initial value
       bounce_rec.point.w = -1.0;

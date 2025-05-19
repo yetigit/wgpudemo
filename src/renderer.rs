@@ -331,10 +331,26 @@ impl Renderer {
             kind: 1,
             ..Default::default()
         };
+
+        let pink_condensate = Material {
+            albedo: [0.5, 0.1, 0.4, 1.0],
+            kind: 1,
+            fuzz: 0.2,
+            ..Default::default()
+        };
+
+        let chrome = Material {
+            albedo: [0.8, 0.8, 0.8, 1.0],
+            kind: 1,
+            ..Default::default()
+        };
+
         self.materials.push(blue_metal);
         self.materials.push(boring_ground);
         self.materials.push(red_ball);
         self.materials.push(yello_metal);
+        self.materials.push(pink_condensate);
+        self.materials.push(chrome);
 
         #[rustfmt::skip]
         let top_sphere = Sphere::new(
@@ -362,6 +378,22 @@ impl Renderer {
           Sphere::new(
              [130.0, 20.0, 350.0],
              3,
+             80.0)
+        ); 
+
+        #[rustfmt::skip]
+        spheres.push (
+          Sphere::new(
+             [130.0, 200.0, 300.0],
+             5,
+             38.0)
+        ); 
+
+        #[rustfmt::skip]
+        spheres.push (
+          Sphere::new(
+             [-200.0, 20.0, 500.0],
+             4,
              80.0)
         ); 
 

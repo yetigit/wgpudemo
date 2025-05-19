@@ -312,21 +312,29 @@ impl Renderer {
     }
 
     pub fn make_world(&mut self) {
-        let red_cap = Material {
+        let blue_metal = Material {
             albedo: [0.1, 0.2, 0.5, 1.0],
+            kind: 1,
             ..Default::default()
         };
-        let green_cap = Material {
-            albedo: [0.8, 0.8, 0.0, 1.0],
+        let boring_ground = Material {
+            albedo: [0.7, 0.5, 0.1, 1.0],
             ..Default::default()
         };
-        let blue_cap = Material {
-            albedo: [0.5, 0.2, 0.1, 1.0],
+        let red_ball = Material {
+            albedo: [0.44, 0.075, 0.05, 1.0],
             ..Default::default()
         };
-        self.materials.push(red_cap);
-        self.materials.push(green_cap);
-        self.materials.push(blue_cap);
+
+        let yello_metal = Material {
+            albedo: [0.5, 0.6, 0.3, 1.0],
+            kind: 1,
+            ..Default::default()
+        };
+        self.materials.push(blue_metal);
+        self.materials.push(boring_ground);
+        self.materials.push(red_ball);
+        self.materials.push(yello_metal);
 
         #[rustfmt::skip]
         let top_sphere = Sphere::new(
@@ -348,6 +356,13 @@ impl Renderer {
              [-80.0, -20.0, 300.0],
              2,
              50.0)
+        ); 
+        #[rustfmt::skip]
+        spheres.push (
+          Sphere::new(
+             [130.0, 20.0, 350.0],
+             3,
+             80.0)
         ); 
 
         let buf = self
@@ -449,6 +464,11 @@ impl Renderer {
         }
 
         if self.shade_pipeline().is_none() {
+            let mira_lay = binding::mira(
+                &self.device,
+                Renderer::HIT_REC_BUF_BIND,
+                Renderer::RAYS_BUF_BIND,
+            );
             let frame_tex_lay = binding::img_texture_bind_group_lay(
                 &self.device,
                 self.config.format,
@@ -475,7 +495,7 @@ impl Renderer {
                     .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                         label: None,
                         bind_group_layouts: &[
-                            &hit_rec_lay,
+                            &mira_lay,
                             &sphere_dim_grp_lay,
                             &frame_tex_lay,
                             &material_grp_lay,
@@ -657,14 +677,20 @@ impl Renderer {
         let compute_pipeline = self.shade_pipeline().unwrap();
 
         compute_pass.set_pipeline(compute_pipeline);
+        
+        // Bundle hit record and rays
+        {
+            let grp = binding::mira_bind(
+                &self.device,
+                self.hit_buf.as_ref().unwrap().as_entire_binding(),
+                self.rays_buf.as_ref().unwrap().as_entire_binding(),
+                Renderer::HIT_REC_BUF_BIND,
+                Renderer::RAYS_BUF_BIND,
+                &compute_pipeline.get_bind_group_layout(0),
+            );
+            compute_pass.set_bind_group(0, &grp, &[]);
+        }
 
-        self.set_buffer_binding(
-            &mut compute_pass,
-            compute_pipeline,
-            self.hit_buf.as_ref().unwrap().as_entire_binding(),
-            0,
-            Renderer::HIT_REC_BUF_BIND,
-        );
 
         // Bind spheres and dim
         {

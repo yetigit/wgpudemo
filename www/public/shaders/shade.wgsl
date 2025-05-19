@@ -35,7 +35,8 @@ struct Ray {
 
 @group(0) @binding(4) 
 var<storage, read_write> rec: array<HitRecord>;
-
+@group(0) @binding(2) 
+var<storage, read_write> rays: array<Ray>;
 
 @group(1) @binding(3) 
 var<storage> world_spheres: array<Sphere>;
@@ -47,9 +48,14 @@ var outputTexture: texture_storage_2d<rgba8unorm, write>;
 
 @group(3) @binding(6) 
 var<storage> materials: array<Material>;
-
 @group(3) @binding(7) 
 var<uniform> u_seed: f32;
+
+
+fn is_near_zero(v: vec3<f32>) -> bool {
+  let epsilon: f32 = 0.0001;
+  return dot(v, v) < (epsilon * epsilon);
+}
 
 // [0, 1] Random value
 fn rand(seed: ptr<function, f32>, pixel: vec2<f32>) -> f32
@@ -89,6 +95,10 @@ fn random_in_hemisphere(normal: vec3<f32>, seed: ptr<function, f32>, pixel: vec2
   }else{
     return -dir;
   }
+}
+
+fn reflect(dir: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+   return dir - (2.0 * dot(dir, normal) * normal);
 }
 
 fn hit_sphere(center:vec3<f32>, radius: f32, ro: vec3<f32>, rv: vec3<f32>, 
@@ -176,9 +186,23 @@ fn to_srgb (color: vec4<f32>) -> vec4<f32> {
   color.w);
 }
 
-fn scatter_lambert(hit_info: ptr<function, HitRecord>, seed: ptr<function, f32>, pixel: vec2<f32>) -> Ray {
+fn scatter_lambert(hit_info: ptr<function, HitRecord>, 
+  seed: ptr<function, f32>, pixel: vec2<f32>) -> Ray {
   let rand_vec = random_in_hemisphere(hit_info.normal, seed, pixel);
-  let dir = normalize(rand_vec + hit_info.normal);
+  var dir = normalize(rand_vec + hit_info.normal);
+  if is_near_zero(dir) {
+    dir = hit_info.normal;
+  }
+
+  var ray: Ray;
+  ray.dir = dir;
+  ray.o = hit_info.point.xyz;
+  return ray;
+}
+
+fn scatter_metal(vec: vec3<f32>, hit_info: ptr<function, HitRecord>) -> Ray {
+  let dir = reflect(vec, hit_info.normal);
+
   var ray: Ray;
   ray.dir = dir;
   ray.o = hit_info.point.xyz;
@@ -202,13 +226,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
   // How much ping-pong ===========
   let max_bounce = 100; 
-  // ========
+  // ==============================
 
   var seed = u_seed;
   let pseed: ptr<function, f32> = &seed;
 
   if rec[idx].point.w > 0.0 && rec[idx].material_id != -1 {
-      // Hit Color
+    // Hit Color
     var attenuation = materials[rec[idx].material_id].albedo.xyz;
     var depth = 0;
     var b_loop = true;
@@ -222,6 +246,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
       var ray: Ray;
       if (material_kind == 0){
         ray = scatter_lambert(bounce_rec_ptr, pseed, pixel);
+      } else if (material_kind == 1) {
+        ray = scatter_metal(rays[idx].dir, bounce_rec_ptr);
       }
       let ray_ptr: ptr<function, Ray> = &ray;
 
@@ -232,6 +258,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
       if (hit_any(ray_ptr, bounce_rec_ptr)){
         attenuation *= materials[bounce_rec.material_id].albedo.xyz;
+        rays[idx] = ray;
       }else {
         attenuation *= vec3<f32>(0.7, 0.7, 0.7);
         b_loop = false;

@@ -34,6 +34,61 @@ pub fn buf_bind_group_lay(
     })
 }
 
+pub fn mira(device: &wgpu::Device, hit_record_bind: u32, rays_bind: u32) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("Shade stage hits and rays"),
+        entries: &[
+            // HitRecord buffer
+            wgpu::BindGroupLayoutEntry {
+                binding: hit_record_bind,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            // Rays buffer
+            wgpu::BindGroupLayoutEntry {
+                binding: rays_bind,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    })
+}
+
+pub fn mira_bind<'a, 'b>(
+    device: &wgpu::Device,
+    rec_rs: wgpu::BindingResource<'a>,
+    rays_rs: wgpu::BindingResource<'b>,
+    hit_record_bind: u32,
+    rays_bind: u32,
+    layout: &wgpu::BindGroupLayout,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        // Get it from our compute pipeline
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: hit_record_bind,
+                resource: rec_rs,
+            },
+            wgpu::BindGroupEntry {
+                binding: rays_bind,
+                resource: rays_rs,
+            },
+        ],
+    })
+}
+
 pub fn sphere_n_dim_group_lay(
     device: &wgpu::Device,
     sphere_bind: u32,

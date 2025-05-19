@@ -11,6 +11,20 @@ pub struct Sphere {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Material {
     pub albedo: [f32; 4],
+    // 0 -> Lambert
+    // 1 -> Metal
+    pub kind: u32,
+    pub _pad0: [u32; 3],
+}
+
+impl Default for Material {
+    fn default() -> Self {
+        Self{
+            albedo : [0.5, 0.5, 0.5, 1.0],
+            kind : 0,
+            _pad0 : [0,0,0]
+        }
+    }
 }
 
 const _: () = assert!(std::mem::size_of::<Material>() % 16 == 0);

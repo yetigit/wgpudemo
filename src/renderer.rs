@@ -312,9 +312,18 @@ impl Renderer {
     }
 
     pub fn make_world(&mut self) {
-        let red_cap = Material {albedo: [0.1, 0.2, 0.5, 1.0]};
-        let green_cap = Material {albedo: [0.8, 0.8, 0.0, 1.0]};
-        let blue_cap = Material {albedo: [0.5, 0.2, 0.1, 1.0]};
+        let red_cap = Material {
+            albedo: [0.1, 0.2, 0.5, 1.0],
+            ..Default::default()
+        };
+        let green_cap = Material {
+            albedo: [0.8, 0.8, 0.0, 1.0],
+            ..Default::default()
+        };
+        let blue_cap = Material {
+            albedo: [0.5, 0.2, 0.1, 1.0],
+            ..Default::default()
+        };
         self.materials.push(red_cap);
         self.materials.push(green_cap);
         self.materials.push(blue_cap);

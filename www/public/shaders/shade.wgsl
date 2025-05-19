@@ -18,7 +18,11 @@ struct Sphere {
 }
 
 struct Material {
- albedo: vec4<f32>
+ albedo: vec4<f32>,
+ kind: u32,
+ _pad0x : u32,
+ _pad0y : u32,
+ _pad0z : u32,
 }
 
 struct Ray {
@@ -172,6 +176,15 @@ fn to_srgb (color: vec4<f32>) -> vec4<f32> {
   color.w);
 }
 
+fn scatter_lambert(hit_info: ptr<function, HitRecord>, seed: ptr<function, f32>, pixel: vec2<f32>) -> Ray {
+  let rand_vec = random_in_hemisphere(hit_info.normal, seed, pixel);
+  let dir = normalize(rand_vec + hit_info.normal);
+  var ray: Ray;
+  ray.dir = dir;
+  ray.o = hit_info.point.xyz;
+  return ray;
+}
+
 
 @compute @workgroup_size(8,8)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -188,7 +201,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
   var color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
 
   // How much ping-pong ===========
-  let max_bounce = 64; 
+  let max_bounce = 100; 
   // ========
 
   var seed = u_seed;
@@ -205,13 +218,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     bounce_rec = rec[idx];
 
     while (depth < max_bounce && b_loop) {
-      
-      let dir = random_in_hemisphere(bounce_rec.normal, pseed, pixel);
-      let o = bounce_rec.point.xyz;
+      let material_kind = materials[bounce_rec.material_id].kind;
       var ray: Ray;
-      ray.dir = dir;
-      ray.o = o;
-      
+      if (material_kind == 0){
+        ray = scatter_lambert(bounce_rec_ptr, pseed, pixel);
+      }
       let ray_ptr: ptr<function, Ray> = &ray;
 
       // Reset to initial value

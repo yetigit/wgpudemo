@@ -157,7 +157,7 @@ impl ApplicationHandler<AppEvent> for App {
 
             WindowEvent::MouseInput {
                 state,
-                button: MouseButton::Left,
+                button: MouseButton::Left | MouseButton::Middle,
                 ..
             } => match state {
                 ElementState::Pressed => self.mouse_pressed = true,
@@ -172,7 +172,6 @@ impl ApplicationHandler<AppEvent> for App {
                     }
                 }
             },
-
 
             WindowEvent::Resized(physical_size) => {
                 log::warn!("Event: resize");

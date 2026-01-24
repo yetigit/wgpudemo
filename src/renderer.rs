@@ -4,7 +4,7 @@ use wgpu::{include_wgsl, util::DeviceExt};
 
 use winit::window::Window; 
 
-use crate::camera::{Camera, CameraLean};
+use crate::camera::{Camera, CameraBasis};
 use crate::sphere::{Sphere, Material};
 
 use crate::intersection::{ Ray, HitRecord };
@@ -85,6 +85,14 @@ impl Renderer {
 
     pub fn window(&self) -> &Window {
         &self.window
+    }
+
+    pub fn camera_look_around(&mut self, pos: (f64, f64)) {
+        self.camera.cumul_orientation_delta(pos);
+    }
+
+    pub fn reset_camera_look_around(&mut self) {
+        self.camera.reset_orientation_delta();
     }
 
     #[allow(dead_code)]
@@ -297,7 +305,8 @@ impl Renderer {
 
 
     fn create_camera_uniform(&mut self) {
-        let camera_lean: CameraLean = self.camera.compute_sensor();
+        let camera_lean: CameraBasis = self.camera.into();
+        log::warn!("{:?}", camera_lean) ;
         let camera_uniform_buffer =
             self.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -575,7 +584,13 @@ impl Renderer {
             self.create_img_texture();
             // NOTE: We could create the buffers, than update the resolution of the camera and dim
             // uniform
-            self.create_camera_uniform();
+            if let Some(camera_buffer) = self.camera_uniform.as_ref() { 
+                let camera_lean: CameraBasis = self.camera.into();
+                self.queue
+                    .write_buffer(camera_buffer, 0, bytemuck::cast_slice(&[camera_lean]));
+            } else {
+                self.create_camera_uniform();
+            }
             self.create_dim_uniform();
             self.create_ray_buf();
             self.create_rec_buf();
@@ -627,6 +642,14 @@ impl Renderer {
         let compute_pipeline = self.ray_pipeline().unwrap();
 
         compute_pass.set_pipeline(compute_pipeline);
+
+        // TODO:
+        if let Some(camera_buffer) = self.camera_uniform.as_ref() { 
+            // log::warn!("writing camera buffer ... ");
+            let camera_lean: CameraBasis = self.camera.into();
+            self.queue
+                .write_buffer(camera_buffer, 0, bytemuck::cast_slice(&[camera_lean]));
+        }
 
         self.set_buffer_binding(
             &mut compute_pass,

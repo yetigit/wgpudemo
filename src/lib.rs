@@ -29,6 +29,7 @@ struct App {
     state: Rc<RefCell<Option<Renderer>>>,
     event_proxy: Arc<EventLoopProxy<AppEvent>>,
     surface_configured: bool,
+    mouse_pressed: bool,
 }
 impl App {
     fn new(event_proxy: EventLoopProxy<AppEvent>) -> Self {
@@ -36,6 +37,7 @@ impl App {
             state: Rc::new(RefCell::new(None)),
             event_proxy: Arc::new(event_proxy),
             surface_configured: false,
+            mouse_pressed: false,
         }
     }
     fn make_world(&mut self) {
@@ -65,6 +67,8 @@ impl ApplicationHandler<AppEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = Window::default_attributes().with_title("gpudemo");
         let window = event_loop.create_window(window_attributes).unwrap();
+        // NOTE:
+        // window.set_cursor_grab(winit::window::CursorGrabMode::Confined).unwrap();
 
         let web_window = web_sys::window().expect("No web window");
         web_window
@@ -103,6 +107,27 @@ impl ApplicationHandler<AppEvent> for App {
         });
     }
 
+    fn device_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        device_id: DeviceId,
+        event: DeviceEvent,
+    ) {
+        match event {
+            DeviceEvent::MouseMotion { delta } => {
+                if self.mouse_pressed {
+                    if let Ok(mut state) = self.state.try_borrow_mut() {
+                        if let Some(state) = state.as_mut() {
+                            state.camera_look_around(delta);
+                            state.window().set_cursor_visible(false);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -129,6 +154,25 @@ impl ApplicationHandler<AppEvent> for App {
                     }
                 }
             }
+
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Left,
+                ..
+            } => match state {
+                ElementState::Pressed => self.mouse_pressed = true,
+                ElementState::Released => {
+                    self.mouse_pressed = false;
+
+                    if let Ok(mut state) = self.state.try_borrow_mut() {
+                        if let Some(state) = state.as_mut() {
+                            // state.reset_camera_look_around();
+                            state.window().set_cursor_visible(true);
+                        }
+                    }
+                }
+            },
+
 
             WindowEvent::Resized(physical_size) => {
                 log::warn!("Event: resize");

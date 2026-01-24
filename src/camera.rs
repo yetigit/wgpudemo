@@ -2,28 +2,21 @@ use nalgebra::Vector3;
 
 type Vector3f = Vector3<f32>;
 
-#[repr(C, packed)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug)]
 pub struct Camera {
     /// matrix parameters
     pub up_vector: [f32; 3],
-    _pad0: u32,
     pub position: [f32; 3],
-    _pad1: u32,
     pub look_at: [f32; 3],
-    _pad2: u32,
 
     /// basis,
     // NOTE: draw happens top-left to right-bottom
     // +Z
     forward: [f32; 3],
-    _pad3: u32,
     // draw toward -X
     right: [f32; 3],
-    _pad4: u32,
     // draw toward -Y
     up: [f32; 3],
-    _pad5: u32,
 
     /// photo parameters
     // in mm
@@ -46,7 +39,9 @@ pub struct Camera {
     // in mm
     // minimum aperture radius, the sharpest picture
     pub min_coc: f32,
-    _pad6: [u32; 3],
+    pub yaw: f32,
+    pub pitch: f32,
+    pub sensitivity: f32,
 }
 
 
@@ -63,8 +58,34 @@ pub struct CameraLean {
     _pad3: u32,
 }
 
-const _: () = assert!(std::mem::size_of::<Camera>() % 16 == 0);
+
+#[repr(C, packed)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct CameraBasis {
+    right: [f32; 3],
+    _pad0: u32,
+    up: [f32; 3],
+    _pad1: u32,
+    forward: [f32; 3],
+    _pad2: u32,
+    pos: [f32; 3],
+    _pad3: u32,
+
+    yaw: f32,
+    pitch: f32,
+
+    sensor_h: f32,
+
+    aspect_ratio: f32,
+
+    focal_length: f32,
+    _pad4: [u32; 3],
+
+}
+
+// const _: () = assert!(std::mem::size_of::<Camera>() % 16 == 0);
 const _: () = assert!(std::mem::size_of::<CameraLean>() % 16 == 0);
+const _: () = assert!(std::mem::size_of::<CameraBasis>() % 16 == 0);
 // const _: () = assert!(std::mem::align_of::<Camera>() == 16);
 
 impl Default for Camera {
@@ -88,20 +109,15 @@ impl Default for Camera {
         let forward = look_at;
         let right: [f32; 3] = Vector3f::x().into();
         let up = up_vector;
+        let sensitivity = 0.01;
 
         let mut camera = Self {
             up_vector,
-            _pad0: 0,
             position,
-            _pad1: 0,
             look_at,
-            _pad2: 0,
 
-            _pad3: 0,
             forward,
-            _pad4: 0,
             right,
-            _pad5: 0,
             up,
 
             focal_length,
@@ -113,7 +129,9 @@ impl Default for Camera {
             aperture_radius: 0.0,
             fovy: 0.0,
             min_coc,
-            _pad6: [0; 3],
+            yaw: 0.0,
+            pitch: 0.0,
+            sensitivity,
         };
 
         camera.update_camera_config();
@@ -196,5 +214,50 @@ impl Camera {
 
         let fovy: f32 = self.sensor_height / (2.0 * self.focal_length);
         self.fovy = 2.0 * fovy.atan();
+    }
+
+    #[allow(dead_code)]
+    pub fn cumul_orientation_delta(&mut self, (x, y): (f64, f64)) { 
+        self.yaw += self.sensitivity * x as f32;
+        self.pitch += self.sensitivity * y as f32;
+    }
+
+    #[allow(dead_code)]
+    pub fn reset_orientation_delta(&mut self) { 
+        self.yaw = 0.0;
+        self.pitch = 0.0;
+    }
+}
+
+impl From<Camera> for CameraBasis {
+    fn from(camera: Camera) -> Self {
+
+
+        let lookat = Vector3f::from(camera.look_at);
+        let pos = Vector3f::from(camera.position);
+        let up_v = Vector3f::from(camera.up_vector);
+
+        let forward = (lookat - pos).normalize();
+        let right = up_v.cross(&forward).normalize();
+        let up = forward.cross(&right);
+
+
+        CameraBasis {
+            right: right.into(),
+            _pad0: 0,
+            up: up.into(),
+            _pad1: 0,
+            forward: forward.into(),
+            _pad2: 0,
+            pos: pos.into(),
+            _pad3: 0,
+
+            yaw: camera.yaw,
+            pitch: camera.pitch,
+            sensor_h: camera.sensor_height,
+            aspect_ratio: camera.aspect_ratio,
+            focal_length: camera.focal_length,
+            _pad4: [0; 3],
+        }
     }
 }

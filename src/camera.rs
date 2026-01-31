@@ -12,23 +12,23 @@ pub struct Camera {
     /// basis,
     // NOTE: draw happens top-left to right-bottom
     // +Z
-    forward: [f32; 3],
+    pub forward: [f32; 3],
     // draw toward -X
-    right: [f32; 3],
+    pub right: [f32; 3],
     // draw toward -Y
-    up: [f32; 3],
+    pub up: [f32; 3],
 
     /// photo parameters
     // in mm
-    focal_length: f32,
+    pub focal_length: f32,
     // in meters
-    focus_distance: f32,
+    pub focus_distance: f32,
     // aperture denominator
-    aperture: f32,
+    pub aperture: f32,
     // in mm
-    sensor_height: f32,
-    aspect_ratio: f32,
-    picture_width: u32,
+    pub sensor_height: f32,
+    pub aspect_ratio: f32,
+    pub picture_width: u32,
 
     ///derived
     // in mm
@@ -41,7 +41,6 @@ pub struct Camera {
     pub min_coc: f32,
     pub yaw: f32,
     pub pitch: f32,
-    pub sensitivity: f32,
 }
 
 
@@ -83,10 +82,8 @@ pub struct CameraBasis {
 
 }
 
-// const _: () = assert!(std::mem::size_of::<Camera>() % 16 == 0);
 const _: () = assert!(std::mem::size_of::<CameraLean>() % 16 == 0);
 const _: () = assert!(std::mem::size_of::<CameraBasis>() % 16 == 0);
-// const _: () = assert!(std::mem::align_of::<Camera>() == 16);
 
 impl Default for Camera {
     fn default() -> Self {
@@ -109,7 +106,10 @@ impl Default for Camera {
         let forward = look_at;
         let right: [f32; 3] = Vector3f::x().into();
         let up = up_vector;
-        let sensitivity = 0.01;
+
+        let mut yaw: f32 = -90.0;
+        yaw = yaw.to_radians();
+        // let yaw: f32 = (90.0 as f32).to_radians();
 
         let mut camera = Self {
             up_vector,
@@ -129,9 +129,8 @@ impl Default for Camera {
             aperture_radius: 0.0,
             fovy: 0.0,
             min_coc,
-            yaw: 0.0,
+            yaw,
             pitch: 0.0,
-            sensitivity,
         };
 
         camera.update_camera_config();
@@ -204,6 +203,19 @@ impl Camera {
         self.update_camera_config();
     }
 
+    pub fn calc_basis(&mut self) { 
+        let lookat = Vector3f::from(self.look_at);
+        let pos = Vector3f::from(self.position);
+        let up_v = Vector3f::from(self.up_vector);
+
+        let forward = (lookat - pos).normalize();
+        let right = up_v.cross(&forward).normalize();
+        let up = forward.cross(&right);
+        self.forward = forward.into();
+        self.right = right.into();
+        self.up = up.into();
+    }
+
     fn update_camera_config(&mut self) {
         let sensor_width: f32 = self.sensor_height * self.aspect_ratio;
         // TODO: add max aperture radius as a member variable
@@ -216,40 +228,39 @@ impl Camera {
         self.fovy = 2.0 * fovy.atan();
     }
 
-    #[allow(dead_code)]
-    pub fn cumul_orientation_delta(&mut self, (x, y): (f64, f64)) { 
-        self.yaw += self.sensitivity * x as f32;
-        self.pitch += self.sensitivity * y as f32;
+    pub fn cumul_orientation_delta(&mut self, (x, y): (f64, f64), sensitivity: f32) { 
+        self.yaw += sensitivity * x as f32;
+        self.pitch += sensitivity * y as f32;
     }
 
-    #[allow(dead_code)]
     pub fn reset_orientation_delta(&mut self) { 
         self.yaw = 0.0;
         self.pitch = 0.0;
     }
+
 }
 
 impl From<Camera> for CameraBasis {
     fn from(camera: Camera) -> Self {
 
 
-        let lookat = Vector3f::from(camera.look_at);
-        let pos = Vector3f::from(camera.position);
-        let up_v = Vector3f::from(camera.up_vector);
+        // let lookat = Vector3f::from(camera.look_at);
+        // let pos = Vector3f::from(camera.position);
+        // let up_v = Vector3f::from(camera.up_vector);
 
-        let forward = (lookat - pos).normalize();
-        let right = up_v.cross(&forward).normalize();
-        let up = forward.cross(&right);
+        // let forward = (lookat - pos).normalize();
+        // let right = up_v.cross(&forward).normalize();
+        // let up = forward.cross(&right);
 
 
         CameraBasis {
-            right: right.into(),
+            right: camera.right,
             _pad0: 0,
-            up: up.into(),
+            up: camera.up,
             _pad1: 0,
-            forward: forward.into(),
+            forward: camera.forward,
             _pad2: 0,
-            pos: pos.into(),
+            pos: camera.position,
             _pad3: 0,
 
             yaw: camera.yaw,

@@ -1,14 +1,17 @@
 use wasm_bindgen::prelude::*;
+use winit::keyboard::KeyCode;
 use std::{sync::Arc, rc::Rc, cell::RefCell};
 // use wgpu::{include_wgsl, util::DeviceExt};
 
 mod binding;
 mod renderer;
 mod camera;
+mod camera_controller;
 mod sphere;
 mod intersection;
 
 use crate::renderer::Renderer; 
+use crate::camera_controller::{CameraDirection, CameraNavMode};
 
 use winit::{
     application::ApplicationHandler,
@@ -29,7 +32,7 @@ struct App {
     state: Rc<RefCell<Option<Renderer>>>,
     event_proxy: Arc<EventLoopProxy<AppEvent>>,
     surface_configured: bool,
-    mouse_pressed: bool,
+    camera_mob: CameraNavMode,
 }
 impl App {
     fn new(event_proxy: EventLoopProxy<AppEvent>) -> Self {
@@ -37,7 +40,7 @@ impl App {
             state: Rc::new(RefCell::new(None)),
             event_proxy: Arc::new(event_proxy),
             surface_configured: false,
-            mouse_pressed: false,
+            camera_mob: CameraNavMode::Idle,
         }
     }
     fn make_world(&mut self) {
@@ -45,6 +48,17 @@ impl App {
             if let Some(state) = state.as_mut() {
                 state.make_world();
             }
+        }
+    }
+
+    fn process_camera_move(&self, state: &mut Renderer, key: KeyCode) { 
+
+        match key {
+            KeyCode::KeyW  => state.camera_move(CameraDirection::Forward),
+            KeyCode::KeyA  => state.camera_move(CameraDirection::Left),
+            KeyCode::KeyS => state.camera_move(CameraDirection::Backward),
+            KeyCode::KeyD => state.camera_move(CameraDirection::Right),
+            _ => {},
         }
     }
 }
@@ -115,13 +129,26 @@ impl ApplicationHandler<AppEvent> for App {
     ) {
         match event {
             DeviceEvent::MouseMotion { delta } => {
-                if self.mouse_pressed {
-                    if let Ok(mut state) = self.state.try_borrow_mut() {
-                        if let Some(state) = state.as_mut() {
-                            state.camera_look_around(delta);
-                            state.window().set_cursor_visible(false);
+                match self.camera_mob  {
+                    CameraNavMode::Look => {
+
+                        if let Ok(mut state) = self.state.try_borrow_mut() {
+                            if let Some(state) = state.as_mut() {
+                                state.camera_look_around(delta);
+                                state.window().set_cursor_visible(false);
+                            }
                         }
-                    }
+                    },
+
+                    CameraNavMode::Pan => {
+
+                        if let Ok(mut state) = self.state.try_borrow_mut() {
+                            if let Some(state) = state.as_mut() {
+                                state.camera_pan(delta);
+                            }
+                        }
+                    },
+                    _ => {}
                 }
             }
             _ => {}
@@ -135,17 +162,7 @@ impl ApplicationHandler<AppEvent> for App {
         event: WindowEvent,
     ) {
         match event {
-            WindowEvent::CloseRequested
-            | WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        state: ElementState::Pressed,
-                        physical_key:
-                            winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::Escape),
-                        ..
-                    },
-                ..
-            } => {
+            WindowEvent::CloseRequested => {
                 if let Ok(state) = self.state.try_borrow() {
                     if let Some(state) = state.as_ref() {
                         if window_id == state.window().id() {
@@ -153,16 +170,50 @@ impl ApplicationHandler<AppEvent> for App {
                         }
                     }
                 }
-            }
+            },
+
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        physical_key: winit::keyboard::PhysicalKey::Code(key),
+                        state : ElementState::Pressed,
+                        ..
+                    },
+                ..
+            } => {
+
+
+                if let Ok(mut state) = self.state.try_borrow_mut() {
+                    if let Some(state) = state.as_mut() {
+
+
+                        match key {
+                            KeyCode::KeyW | KeyCode::KeyA | KeyCode::KeyS | KeyCode::KeyD => { 
+                                self.camera_mob = CameraNavMode::FPS ;
+                                self.process_camera_move(state, key);
+                            },
+                            _ => {
+                                self.camera_mob = CameraNavMode::Idle 
+                            }
+                        }
+
+                    }
+                };
+
+
+
+            },
+
+
 
             WindowEvent::MouseInput {
                 state,
-                button: MouseButton::Left | MouseButton::Middle,
+                button: MouseButton::Left,
                 ..
             } => match state {
-                ElementState::Pressed => self.mouse_pressed = true,
+                ElementState::Pressed => self.camera_mob = CameraNavMode::Look,
                 ElementState::Released => {
-                    self.mouse_pressed = false;
+                    self.camera_mob = CameraNavMode::Idle;
 
                     if let Ok(mut state) = self.state.try_borrow_mut() {
                         if let Some(state) = state.as_mut() {
@@ -170,6 +221,17 @@ impl ApplicationHandler<AppEvent> for App {
                             state.window().set_cursor_visible(true);
                         }
                     }
+                }
+            },
+
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Middle,
+                ..
+            } => match state {
+                ElementState::Pressed => self.camera_mob = CameraNavMode::Pan,
+                ElementState::Released => {
+                    self.camera_mob = CameraNavMode::Idle;
                 }
             },
 

@@ -5,6 +5,7 @@ use wgpu::{include_wgsl, util::DeviceExt};
 use winit::window::Window; 
 
 use crate::camera::{Camera, CameraBasis};
+use crate::camera_controller::{CameraController, WgslCameraControls, CameraDirection};
 use crate::sphere::{Sphere, Material};
 
 use crate::intersection::{ Ray, HitRecord };
@@ -21,6 +22,7 @@ pub struct Renderer {
     // Buffers and textures
     // Ray pass
     camera_uniform: Option<wgpu::Buffer>,
+    controller_uniform: Option<wgpu::Buffer>,
     seed_uniform: Option<wgpu::Buffer>,
     dim_uniform: Option<wgpu::Buffer>,
     rays_buf: Option<wgpu::Buffer>,
@@ -37,6 +39,7 @@ pub struct Renderer {
     // Misc
     pub window: Arc<Window>,
     camera: Camera,
+    controller: CameraController,
     pub size: winit::dpi::PhysicalSize<u32>,
 }
 
@@ -49,6 +52,7 @@ impl Renderer {
     const DIM_UNIFORM_BIND: u32 = 5;
     const MAT_BUF_BIND: u32 = 6;
     const SEED_UNIFORM_BIND: u32 = 7;
+    const CONTROLS_UNIFORM_BIND: u32 = 8;
 
     fn ray_pipeline(&self) -> Option<&wgpu::ComputePipeline> {
         self.compute_pipeline[0].as_ref()
@@ -87,13 +91,19 @@ impl Renderer {
         &self.window
     }
 
-    pub fn camera_look_around(&mut self, pos: (f64, f64)) {
-        self.camera.cumul_orientation_delta(pos);
+    pub fn camera_move(&mut self, dir: CameraDirection) {
+        self.controller.process_move(dir);
     }
 
-    pub fn reset_camera_look_around(&mut self) {
-        self.camera.reset_orientation_delta();
+    pub fn camera_pan(&mut self, pos: (f64, f64)) {
+        self.controller.process_pan(pos);
     }
+
+    pub fn camera_look_around(&mut self, pos: (f64, f64)) {
+        self.controller.process_look(pos);
+        // self.camera.cumul_orientation_delta(pos, self.controller.sensitivity);
+    }
+
 
     #[allow(dead_code)]
     async fn fetch_shader(shader_path: &str) -> Result<String, JsValue> {
@@ -178,6 +188,7 @@ impl Renderer {
             config,
             compute_pipeline: [None, None, None, None],
             camera_uniform: None,
+            controller_uniform: None,
             seed_uniform: None,
             dim_uniform: None,
             rays_buf: None,
@@ -189,6 +200,7 @@ impl Renderer {
             materials: Vec::new(),
             window,
             camera,
+            controller: CameraController::new(2.0, 0.01),
             size,
         }
     }
@@ -304,9 +316,24 @@ impl Renderer {
     }
 
 
+
+    fn create_controls_uniform(&mut self) {
+        let controls: WgslCameraControls = self.controller.into();
+        let buffer =
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Controller uniform"),
+                    contents: bytemuck::cast_slice(&[controls]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+        if let Some(uniform) = self.controller_uniform.as_ref() {
+            uniform.destroy();
+        }
+        self.controller_uniform = Some(buffer);
+    }
+
     fn create_camera_uniform(&mut self) {
         let camera_lean: CameraBasis = self.camera.into();
-        log::warn!("{:?}", camera_lean) ;
         let camera_uniform_buffer =
             self.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -440,15 +467,19 @@ impl Renderer {
 
         let dim_grp_lay = binding::uniform_bind_group_lay(&self.device, Renderer::DIM_UNIFORM_BIND);
 
+
         if self.ray_pipeline().is_none() {
             let camera_grp_lay =
                 binding::uniform_bind_group_lay(&self.device, Renderer::CAMERA_UNIFORM_BIND);
+
+            let controls_grp_lay =
+                binding::uniform_bind_group_lay(&self.device, Renderer::CONTROLS_UNIFORM_BIND);
 
             let compute_pipeline_layout =
                 self.device
                     .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                         label: None,
-                        bind_group_layouts: &[&camera_grp_lay, &rays_grp_lay, &dim_grp_lay],
+                        bind_group_layouts: &[&camera_grp_lay,  &rays_grp_lay, &dim_grp_lay, &controls_grp_lay],
                         push_constant_ranges: &[],
                     });
 
@@ -581,15 +612,23 @@ impl Renderer {
             self.camera.position = [0.0, 400.0, -100.0]; 
             self.camera.look_at = [0.0, 0.0, 500.0];
 
+            self.camera.calc_basis();
+
             self.create_img_texture();
-            // NOTE: We could create the buffers, than update the resolution of the camera and dim
-            // uniform
             if let Some(camera_buffer) = self.camera_uniform.as_ref() { 
                 let camera_lean: CameraBasis = self.camera.into();
                 self.queue
                     .write_buffer(camera_buffer, 0, bytemuck::cast_slice(&[camera_lean]));
             } else {
                 self.create_camera_uniform();
+            }
+
+            if let Some(controller_buffer) = self.controller_uniform.as_ref() { 
+                let controls: WgslCameraControls = self.controller.into();
+                self.queue
+                    .write_buffer(controller_buffer, 0, bytemuck::cast_slice(&[controls]));
+            } else {
+                self.create_controls_uniform();
             }
             self.create_dim_uniform();
             self.create_ray_buf();
@@ -634,6 +673,9 @@ impl Renderer {
         let workgrp_x = width.div_ceil(8);
         let workgrp_y = height.div_ceil(8);
 
+        // NOTE:
+        // self.controller.update_camera(&mut self.camera);
+        
         // Rays pass #########################################
         let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("Ray pass"),
@@ -643,12 +685,17 @@ impl Renderer {
 
         compute_pass.set_pipeline(compute_pipeline);
 
-        // TODO:
+        // log::warn!("writing camera buffer ... ");
         if let Some(camera_buffer) = self.camera_uniform.as_ref() { 
-            // log::warn!("writing camera buffer ... ");
             let camera_lean: CameraBasis = self.camera.into();
             self.queue
                 .write_buffer(camera_buffer, 0, bytemuck::cast_slice(&[camera_lean]));
+        }
+
+        if let Some(controller_buffer) = self.controller_uniform.as_ref() { 
+            let controls: WgslCameraControls = self.controller.into();
+            self.queue
+                .write_buffer(controller_buffer, 0, bytemuck::cast_slice(&[controls]));
         }
 
         self.set_buffer_binding(
@@ -673,6 +720,14 @@ impl Renderer {
             self.dim_uniform.as_ref().unwrap().as_entire_binding(),
             2,
             Renderer::DIM_UNIFORM_BIND,
+        );
+
+        self.set_buffer_binding(
+            &mut compute_pass,
+            compute_pipeline,
+            self.controller_uniform.as_ref().unwrap().as_entire_binding(),
+            3,
+            Renderer::CONTROLS_UNIFORM_BIND,
         );
 
         compute_pass.dispatch_workgroups(workgrp_x, workgrp_y, 1);

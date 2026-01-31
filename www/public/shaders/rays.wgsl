@@ -20,6 +20,17 @@ struct Camera {
   _pad4z: u32,
 }
 
+struct Controller {
+   speed: f32,
+   sensitivity: f32,
+   fwd_move: f32,
+   right_move: f32,
+   pan_x: f32,
+   pan_y: f32,
+   yaw: f32,
+   pitch: f32,
+}
+
 struct Ray {
   dir: vec3<f32>,
   _pad0: u32,
@@ -36,6 +47,8 @@ var<storage, read_write> rays: array<Ray>;
 @group(2) @binding(5) 
 var<uniform> dims: vec2<u32>;
 
+@group(3) @binding(8) 
+var<uniform> controls: Controller;
 
 
 struct CameraSensor {
@@ -49,8 +62,8 @@ fn compute_sensor (width: u32 , height: u32) -> CameraSensor {
   let sensor_height = camera.sensor_h;
   let sensor_width = sensor_height * camera.aspect_ratio;
 
-  let yaw = camera.yaw;
-  let pitch = camera.pitch;
+  let yaw = controls.yaw;
+  let pitch = controls.pitch;
 
   var fp: vec3<f32> = camera.forward * sin(yaw) + camera.right * cos(yaw);
   let rp = -cross(camera.up, fp);
@@ -62,12 +75,24 @@ fn compute_sensor (width: u32 , height: u32) -> CameraSensor {
   let forward = normalize(fp); 
   let up = normalize(upp);
 
+  var pos: vec3<f32> = camera.pos;
+
+  // apply WASD
+  pos += forward * controls.fwd_move;
+  pos += right * controls.right_move;
+  
+  // apply PAN
+  pos += right * controls.pan_x;
+  pos += up * controls.pan_y;
+  
+  //////////
+
   let sensor_u = right * -sensor_width;
   let sensor_v = up * -sensor_height;
   let pixel_delta_u = sensor_u / f32(width);
   let pixel_delta_v = sensor_v / f32(height);
   let sensor_corner =
-      camera.pos + forward * camera.focal_length - ((sensor_u + sensor_v) * 0.5);
+      pos + forward * camera.focal_length - ((sensor_u + sensor_v) * 0.5);
 
   let pixeloo = sensor_corner + ((pixel_delta_u + pixel_delta_v) * 0.5);
 
@@ -75,7 +100,7 @@ fn compute_sensor (width: u32 , height: u32) -> CameraSensor {
     pixeloo,
     pixel_delta_u,
     pixel_delta_v,
-    camera.pos
+    pos
   );
 
 }

@@ -200,7 +200,7 @@ impl Renderer {
             materials: Vec::new(),
             window,
             camera,
-            controller: CameraController::new(2.0, 0.01),
+            controller: CameraController::new(10.0, 0.01),
             size,
         }
     }

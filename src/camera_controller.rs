@@ -27,6 +27,7 @@ pub struct CameraController {
     pub sensitivity: f32,
     pub fwd_move: f32,
     pub right_move: f32,
+    pub up_move: f32,
     pub pan_x: f32,
     pub pan_y: f32,
     pub yaw: f32,
@@ -40,10 +41,12 @@ pub struct WgslCameraControls {
      sensitivity: f32,
      fwd_move: f32,
      right_move: f32,
+     up_move: f32,
      pan_x: f32,
      pan_y: f32,
      yaw: f32,
      pitch: f32,
+     _pad0: [u32; 3],
 }
 
 const _: () = assert!(std::mem::size_of::<WgslCameraControls>() % 16 == 0);
@@ -56,6 +59,7 @@ impl CameraController {
             sensitivity,
             fwd_move: 0.0,
             right_move: 0.0,
+            up_move: 0.0,
             pan_x: 0.0,
             pan_y: 0.0,
             yaw : CameraController::YAW_START,
@@ -64,12 +68,13 @@ impl CameraController {
     }
 
     pub fn process_move(&mut self, dir: CameraDirection) {
-        match dir { 
-             CameraDirection::Forward=> self.fwd_move += 1.0 * self.speed,
-             CameraDirection::Backward=> self.fwd_move += -1.0 * self.speed,
-             CameraDirection::Right=> self.right_move += -1.0 * self.speed,
-             CameraDirection::Left=> self.right_move += 1.0 * self.speed,
-             _ => {}
+        match dir {
+            CameraDirection::Forward => self.fwd_move += 1.0 * self.speed,
+            CameraDirection::Backward => self.fwd_move += -1.0 * self.speed,
+            CameraDirection::Right => self.right_move += -1.0 * self.speed,
+            CameraDirection::Left => self.right_move += 1.0 * self.speed,
+            CameraDirection::Up => self.up_move += 1.0 * self.speed,
+            CameraDirection::Down => self.up_move += -1.0 * self.speed,
         }
     }
 
@@ -83,6 +88,7 @@ impl CameraController {
         self.pitch += self.sensitivity * y as f32;
     }
 
+    #[allow(dead_code)]
     pub fn set_zero(&mut self) {
         self.yaw = CameraController::YAW_START;
         self.pitch = 0.0;
@@ -92,6 +98,7 @@ impl CameraController {
         self.pan_y = 0.0;
     }
 
+    #[allow(dead_code)]
     pub fn update_camera(&mut self, camera: &mut Camera) {
         // Apply Look
         let base_fwd = Vector3f::from(camera.forward);
@@ -141,10 +148,12 @@ impl From<CameraController> for WgslCameraControls {
             sensitivity: controller.sensitivity,
             fwd_move: controller.fwd_move,
             right_move: controller.right_move,
+            up_move: controller.up_move,
             pan_x: controller.pan_x,
             pan_y: controller.pan_y,
             yaw: controller.yaw,
             pitch: controller.pitch,
+            _pad0: [0; 3],
         }
     }
 }

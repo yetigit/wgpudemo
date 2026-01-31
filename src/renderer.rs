@@ -101,7 +101,6 @@ impl Renderer {
 
     pub fn camera_look_around(&mut self, pos: (f64, f64)) {
         self.controller.process_look(pos);
-        // self.camera.cumul_orientation_delta(pos, self.controller.sensitivity);
     }
 
 

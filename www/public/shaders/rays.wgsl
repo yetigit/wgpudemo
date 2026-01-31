@@ -20,10 +20,14 @@ struct Controller {
    sensitivity: f32,
    fwd_move: f32,
    right_move: f32,
+   up_move: f32,
    pan_x: f32,
    pan_y: f32,
    yaw: f32,
    pitch: f32,
+  _pad0x: u32,
+  _pad0y: u32,
+  _pad0z: u32,
 }
 
 struct Ray {
@@ -75,6 +79,7 @@ fn compute_sensor (width: u32 , height: u32) -> CameraSensor {
   // apply WASD
   pos += forward * controls.fwd_move;
   pos += right * controls.right_move;
+  pos += up * controls.up_move;
   
   // apply PAN
   pos += right * controls.pan_x;

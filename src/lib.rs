@@ -51,14 +51,15 @@ impl App {
         }
     }
 
-    fn process_camera_move(&self, state: &mut Renderer, key: KeyCode) { 
-
+    fn process_camera_move(&self, state: &mut Renderer, key: KeyCode) {
         match key {
-            KeyCode::KeyW  => state.camera_move(CameraDirection::Forward),
-            KeyCode::KeyA  => state.camera_move(CameraDirection::Left),
+            KeyCode::KeyW => state.camera_move(CameraDirection::Forward),
+            KeyCode::KeyA => state.camera_move(CameraDirection::Left),
             KeyCode::KeyS => state.camera_move(CameraDirection::Backward),
             KeyCode::KeyD => state.camera_move(CameraDirection::Right),
-            _ => {},
+            KeyCode::KeyE => state.camera_move(CameraDirection::Up),
+            KeyCode::KeyQ => state.camera_move(CameraDirection::Down),
+            _ => {}
         }
     }
 }
@@ -176,35 +177,28 @@ impl ApplicationHandler<AppEvent> for App {
                 event:
                     KeyEvent {
                         physical_key: winit::keyboard::PhysicalKey::Code(key),
-                        state : ElementState::Pressed,
+                        state: ElementState::Pressed,
                         ..
                     },
                 ..
             } => {
-
-
                 if let Ok(mut state) = self.state.try_borrow_mut() {
                     if let Some(state) = state.as_mut() {
-
-
                         match key {
-                            KeyCode::KeyW | KeyCode::KeyA | KeyCode::KeyS | KeyCode::KeyD => { 
-                                self.camera_mob = CameraNavMode::FPS ;
+                            KeyCode::KeyW
+                            | KeyCode::KeyA
+                            | KeyCode::KeyS
+                            | KeyCode::KeyD
+                            | KeyCode::KeyE
+                            | KeyCode::KeyQ => {
+                                self.camera_mob = CameraNavMode::FPS;
                                 self.process_camera_move(state, key);
-                            },
-                            _ => {
-                                self.camera_mob = CameraNavMode::Idle 
                             }
+                            _ => self.camera_mob = CameraNavMode::Idle,
                         }
-
                     }
                 };
-
-
-
-            },
-
-
+            }
 
             WindowEvent::MouseInput {
                 state,

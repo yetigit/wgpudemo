@@ -39,8 +39,6 @@ pub struct Camera {
     // in mm
     // minimum aperture radius, the sharpest picture
     pub min_coc: f32,
-    pub yaw: f32,
-    pub pitch: f32,
 }
 
 
@@ -70,15 +68,12 @@ pub struct CameraBasis {
     pos: [f32; 3],
     _pad3: u32,
 
-    yaw: f32,
-    pitch: f32,
-
     sensor_h: f32,
 
     aspect_ratio: f32,
 
     focal_length: f32,
-    _pad4: [u32; 3],
+    _pad4: u32,
 
 }
 
@@ -107,10 +102,6 @@ impl Default for Camera {
         let right: [f32; 3] = Vector3f::x().into();
         let up = up_vector;
 
-        let mut yaw: f32 = -90.0;
-        yaw = yaw.to_radians();
-        // let yaw: f32 = (90.0 as f32).to_radians();
-
         let mut camera = Self {
             up_vector,
             position,
@@ -129,8 +120,6 @@ impl Default for Camera {
             aperture_radius: 0.0,
             fovy: 0.0,
             min_coc,
-            yaw,
-            pitch: 0.0,
         };
 
         camera.update_camera_config();
@@ -228,15 +217,6 @@ impl Camera {
         self.fovy = 2.0 * fovy.atan();
     }
 
-    pub fn cumul_orientation_delta(&mut self, (x, y): (f64, f64), sensitivity: f32) { 
-        self.yaw += sensitivity * x as f32;
-        self.pitch += sensitivity * y as f32;
-    }
-
-    pub fn reset_orientation_delta(&mut self) { 
-        self.yaw = 0.0;
-        self.pitch = 0.0;
-    }
 
 }
 
@@ -263,12 +243,10 @@ impl From<Camera> for CameraBasis {
             pos: camera.position,
             _pad3: 0,
 
-            yaw: camera.yaw,
-            pitch: camera.pitch,
             sensor_h: camera.sensor_height,
             aspect_ratio: camera.aspect_ratio,
             focal_length: camera.focal_length,
-            _pad4: [0; 3],
+            _pad4: 0,
         }
     }
 }

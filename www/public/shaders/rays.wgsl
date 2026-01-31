@@ -8,16 +8,11 @@ struct Camera {
   pos: vec3<f32>,
   _pad3: u32,
 
-  yaw: f32,
-  pitch: f32,
-
   sensor_h: f32,
 
   aspect_ratio: f32,
   focal_length: f32,
   _pad4x: u32,
-  _pad4y: u32,
-  _pad4z: u32,
 }
 
 struct Controller {

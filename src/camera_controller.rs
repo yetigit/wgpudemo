@@ -49,6 +49,7 @@ pub struct WgslCameraControls {
 const _: () = assert!(std::mem::size_of::<WgslCameraControls>() % 16 == 0);
 
 impl CameraController {
+    const YAW_START: f32 = -90.0 * (std::f32::consts::PI / 180.0);
     pub fn new(speed: f32, sensitivity: f32) -> Self {
         Self {
             speed,
@@ -57,24 +58,24 @@ impl CameraController {
             right_move: 0.0,
             pan_x: 0.0,
             pan_y: 0.0,
-            yaw : (-90.0 as f32).to_radians(),
+            yaw : CameraController::YAW_START,
             pitch: 0.0,
         }
     }
 
     pub fn process_move(&mut self, dir: CameraDirection) {
         match dir { 
-             CameraDirection::Forward=> self.fwd_move += self.speed,
-             CameraDirection::Backward=> self.fwd_move += -self.speed,
-             CameraDirection::Right=> self.right_move += -self.speed,
-             CameraDirection::Left=> self.right_move += self.speed,
+             CameraDirection::Forward=> self.fwd_move += 1.0 * self.speed,
+             CameraDirection::Backward=> self.fwd_move += -1.0 * self.speed,
+             CameraDirection::Right=> self.right_move += -1.0 * self.speed,
+             CameraDirection::Left=> self.right_move += 1.0 * self.speed,
              _ => {}
         }
     }
 
-    pub fn process_pan(&mut self, pos: (f64, f64)) {
-        self.pan_x += 1.0 * pos.0 as f32;
-        self.pan_y += 1.0 * pos.1 as f32;
+    pub fn process_pan(&mut self, (x, y): (f64, f64)) {
+        self.pan_x +=  x as f32;
+        self.pan_y +=  y as f32;
     }
 
     pub fn process_look(&mut self, (x, y): (f64, f64)) {
@@ -82,52 +83,55 @@ impl CameraController {
         self.pitch += self.sensitivity * y as f32;
     }
 
+    pub fn set_zero(&mut self) {
+        self.yaw = CameraController::YAW_START;
+        self.pitch = 0.0;
+        self.fwd_move = 0.0;
+        self.right_move = 0.0;
+        self.pan_x = 0.0;
+        self.pan_y = 0.0;
+    }
 
     pub fn update_camera(&mut self, camera: &mut Camera) {
+        // Apply Look
+        let base_fwd = Vector3f::from(camera.forward);
+        let base_right = Vector3f::from(camera.right);
+        let base_up = Vector3f::from(camera.up);
+
+        let yaw = self.yaw;
+        let pitch = self.pitch;
+
+        let fp = base_fwd * yaw.sin() + base_right * yaw.cos();
+        let rp = -base_up.cross(&fp);
+
+        let fp = base_up * -pitch.sin() + fp * -pitch.cos();
+        let upp = fp.cross(&rp);
+
+        let right = rp.normalize();
+        let forward = fp.normalize();
+        let up = upp.normalize();
+
+        let mut pos: Vector3f = camera.position.into();
+
         // Apply Move
         if self.fwd_move != 0.0 || self.right_move != 0.0 {
-            let forward : Vector3f = camera.forward.into();
-            let right : Vector3f = camera.right.into();
-            let mut pos : Vector3f =  camera.position.into();
-            pos += forward.normalize() * self.fwd_move;
-            pos += right.normalize() * self.right_move;
-            camera.position = pos.into();
-            
-            // Reset per-frame move triggers
-            self.fwd_move = 0.0;
-            self.right_move = 0.0;
+            pos += forward * self.fwd_move;
+            pos += right * self.right_move;
         }
 
         // Apply Pan
         if self.pan_x != 0.0 || self.pan_y != 0.0 {
-            let right : Vector3f = camera.right.into();
-            let up : Vector3f = camera.up.into();
-            let mut pos : Vector3f =  camera.position.into();
-            pos += right.normalize() * self.pan_x;
-            pos += up.normalize() * self.pan_y;
-            camera.position = pos.into();
-            
-            self.pan_x = 0.0;
-            self.pan_y = 0.0;
+            pos += right * self.pan_x;
+            pos += up * self.pan_y;
         }
-        // 
 
-      // var fp: vec3<f32> = camera.forward * sin(yaw) + camera.right * cos(yaw);
-
-        // let base_fwd = Vector3f::from(camera.forward);
-        // let base_right = Vector3f::from(camera.right);
-        // let base_up = Vector3f::from(camera.up);
-
-        // let mut fp = base_fwd * self.yaw.sin() + base_right * self.yaw.cos();
-        // let rp = -base_up.cross(&base_fwd);
-
-        // let fp = base_up * -self.pitch.sin() + fp * -self.pitch.cos();
-        // let upp = fp.cross(&rp);
-
-        // let right = rp.normalize();
-        // let forward = fp.normalize();
-        // let up = upp.normalize();
+        camera.position = pos.into();
+        camera.forward = forward.into();
+        camera.right = right.into();
+        camera.up = up.into();
+        self.set_zero();
     }
+
 }
 
 impl From<CameraController> for WgslCameraControls {

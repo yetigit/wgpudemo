@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        PATH = "${HOME}/.cargo/bin:$PATH" 
+        PATH = "/root/.cargo/bin:$PATH" 
     }
 
     stages {
